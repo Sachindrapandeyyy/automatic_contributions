@@ -179,3 +179,4 @@
 [2026-09-07T14:21:40] perf: cache indexed metadata queries in LRU store
 [2026-09-07T16:45:12] refactor: simplify error formatting and log levels
 [2025-09-23T09:14:22] feat: optimize async queue ingestion latency
+[2025-09-23T11:32:05] fix: prevent race condition in telemetry buffer
