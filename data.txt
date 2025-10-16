@@ -360,3 +360,4 @@
 [2025-09-25T16:45:12] refactor: simplify error formatting and log levels
 [2025-10-02T09:14:22] feat: optimize async queue ingestion latency
 [2025-10-02T11:32:05] fix: prevent race condition in telemetry buffer
+[2025-10-16T09:14:22] test: add unit tests for redis connection pool
