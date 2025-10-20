@@ -93,3 +93,4 @@
 [2025-10-13T09:14:22] feat: support concurrent task batching with uvloop
 [2025-10-13T11:32:05] fix: resolve socket timeout during heavy payload sync
 [2025-10-13T14:21:40] perf: cache indexed metadata queries in LRU store
+[2025-10-20T09:14:22] feat: optimize async queue ingestion latency
