@@ -262,3 +262,4 @@
 [2025-10-22T09:14:22] feat: support concurrent task batching with uvloop
 [2025-10-22T11:32:05] fix: resolve socket timeout during heavy payload sync
 [2025-10-29T09:14:22] feat: optimize async queue ingestion latency
+[2025-10-29T11:32:05] fix: prevent race condition in telemetry buffer
