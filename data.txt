@@ -576,3 +576,4 @@
 [2025-10-18T16:45:12] refactor: simplify error formatting and log levels
 [2025-10-25T09:14:22] feat: optimize async queue ingestion latency
 [2025-10-25T11:32:05] fix: prevent race condition in telemetry buffer
+[2025-11-08T09:14:22] test: add unit tests for redis connection pool
