@@ -102,3 +102,4 @@
 [2025-11-10T09:14:22] perf: optimize database query execution plan
 [2025-11-10T11:32:05] feat: add prometheus metrics collector for worker nodes
 [2025-11-10T14:21:40] test: increase test coverage for auth token validation
+[2025-11-17T09:14:22] feat: support concurrent task batching with uvloop
