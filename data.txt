@@ -488,3 +488,4 @@
 [2025-11-14T11:32:05] feat: add prometheus metrics collector for worker nodes
 [2025-11-21T09:14:22] feat: support concurrent task batching with uvloop
 [2025-11-21T11:32:05] fix: resolve socket timeout during heavy payload sync
+[2025-11-21T14:21:40] perf: cache indexed metadata queries in LRU store
