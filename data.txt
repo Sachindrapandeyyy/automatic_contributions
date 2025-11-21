@@ -487,3 +487,4 @@
 [2025-11-14T09:14:22] perf: optimize database query execution plan
 [2025-11-14T11:32:05] feat: add prometheus metrics collector for worker nodes
 [2025-11-21T09:14:22] feat: support concurrent task batching with uvloop
+[2025-11-21T11:32:05] fix: resolve socket timeout during heavy payload sync
