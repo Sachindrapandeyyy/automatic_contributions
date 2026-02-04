@@ -295,3 +295,4 @@
 [2026-01-21T11:32:05] feat: add prometheus metrics collector for worker nodes
 [2026-01-21T14:21:40] test: increase test coverage for auth token validation
 [2026-01-21T16:45:12] docs: clarify API endpoint rate limiting specs
+[2026-02-04T09:14:22] feat: support concurrent task batching with uvloop
