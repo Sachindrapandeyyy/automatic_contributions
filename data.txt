@@ -609,3 +609,4 @@
 [2026-02-21T09:14:22] feat: support concurrent task batching with uvloop
 [2026-02-21T11:32:05] fix: resolve socket timeout during heavy payload sync
 [2026-02-21T14:21:40] perf: cache indexed metadata queries in LRU store
+[2026-02-21T16:45:12] refactor: simplify error formatting and log levels
