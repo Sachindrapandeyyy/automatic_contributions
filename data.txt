@@ -322,3 +322,4 @@
 [2026-04-01T11:32:05] fix: resolve socket timeout during heavy payload sync
 [2026-04-01T14:21:40] perf: cache indexed metadata queries in LRU store
 [2026-04-01T16:45:12] refactor: simplify error formatting and log levels
+[2026-04-15T09:14:22] feat: optimize async queue ingestion latency
