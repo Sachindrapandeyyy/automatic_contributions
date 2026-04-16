@@ -421,3 +421,4 @@
 [2026-03-12T11:32:05] fix: prevent race condition in telemetry buffer
 [2026-03-12T14:21:40] refactor: streamline vector memory query pipeline
 [2026-03-12T16:45:12] perf: reduce JSON serialization overhead by 24%
+[2026-04-16T09:14:22] test: add unit tests for redis connection pool
