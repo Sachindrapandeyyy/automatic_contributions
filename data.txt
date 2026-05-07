@@ -427,3 +427,4 @@
 [2026-04-30T11:32:05] feat: add prometheus metrics collector for worker nodes
 [2026-04-30T14:21:40] test: increase test coverage for auth token validation
 [2026-05-07T09:14:22] feat: support concurrent task batching with uvloop
+[2026-05-07T11:32:05] fix: resolve socket timeout during heavy payload sync
