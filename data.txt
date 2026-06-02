@@ -234,3 +234,4 @@
 [2026-05-19T16:45:12] refactor: extract modular HTTP client middleware
 [2026-05-26T09:14:22] perf: optimize database query execution plan
 [2026-05-26T11:32:05] feat: add prometheus metrics collector for worker nodes
+[2026-06-02T09:14:22] feat: support concurrent task batching with uvloop
