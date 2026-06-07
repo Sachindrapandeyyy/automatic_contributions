@@ -58,3 +58,4 @@
 [2026-05-31T11:32:05] fix: resolve socket timeout during heavy payload sync
 [2026-05-31T14:21:40] perf: cache indexed metadata queries in LRU store
 [2026-06-07T09:14:22] feat: optimize async queue ingestion latency
+[2026-06-07T11:32:05] fix: prevent race condition in telemetry buffer
