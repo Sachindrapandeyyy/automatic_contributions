@@ -332,3 +332,4 @@
 [2026-06-17T14:21:40] test: increase test coverage for auth token validation
 [2026-06-17T16:45:12] docs: clarify API endpoint rate limiting specs
 [2026-06-24T09:14:22] feat: support concurrent task batching with uvloop
+[2026-06-24T11:32:05] fix: resolve socket timeout during heavy payload sync
