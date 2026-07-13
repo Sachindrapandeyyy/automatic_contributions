@@ -128,6 +128,69 @@ app.post('/api/auth/login', (req, res) => {
   res.json({ success: true, token });
 });
 
+// GitHub OAuth authentication endpoint
+app.post('/api/auth/github', async (req, res) => {
+  const { code } = req.body;
+  const config = readConfig();
+
+  if (!config.githubClientId || !config.githubClientSecret) {
+    return res.status(400).json({ error: 'GitHub OAuth is not configured on this server.' });
+  }
+
+  if (!code) {
+    return res.status(400).json({ error: 'OAuth code missing.' });
+  }
+
+  try {
+    // 1. Exchange code for access token
+    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        client_id: config.githubClientId,
+        client_secret: config.githubClientSecret,
+        code
+      })
+    });
+
+    const tokenData = await tokenRes.json();
+    if (tokenData.error) {
+      throw new Error(tokenData.error_description || tokenData.error);
+    }
+
+    const accessToken = tokenData.access_token;
+
+    // 2. Fetch user profile from GitHub
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `token ${accessToken}`,
+        'User-Agent': 'Git-Auto-Committer-App'
+      }
+    });
+
+    const userData = await userRes.json();
+    if (!userData.login) {
+      throw new Error('Failed to retrieve GitHub profile.');
+    }
+
+    // 3. Verify user matches authorized user
+    const allowedUser = config.githubAllowedUser || 'Sachindrapandeyyy';
+    if (userData.login.toLowerCase() !== allowedUser.toLowerCase()) {
+      return res.status(403).json({ error: `Unauthorized. Access restricted to owner: ${allowedUser}` });
+    }
+
+    // 4. Generate and return token
+    const token = generateToken(config.sessionSecret);
+    res.json({ success: true, token, username: userData.login });
+  } catch (err) {
+    console.error('GitHub OAuth failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Protected Scheduler Task Helpers ---
 
 function registerWindowsTask() {
@@ -171,7 +234,6 @@ function checkTaskStatus() {
 }
 
 // --- Protected App Endpoints ---
-
 app.get('/api/config', authMiddleware, (req, res) => {
   const config = readConfig();
   const taskStatus = checkTaskStatus();
@@ -181,8 +243,10 @@ app.get('/api/config', authMiddleware, (req, res) => {
   delete safeConfig.passwordHash;
   delete safeConfig.sessionSecret;
   if (safeConfig.llmApiKey) {
-    // Return masked API key
     safeConfig.llmApiKey = safeConfig.llmApiKey.substring(0, 7) + '...';
+  }
+  if (safeConfig.githubClientSecret) {
+    safeConfig.githubClientSecret = safeConfig.githubClientSecret.substring(0, 7) + '...';
   }
   
   res.json({ ...safeConfig, schedulerRegistered: taskStatus.registered });
@@ -202,6 +266,11 @@ app.post('/api/config', authMiddleware, (req, res) => {
   // Preserve API key if it's sent as masked
   if (newConfig.llmApiKey && newConfig.llmApiKey.endsWith('...')) {
     newConfig.llmApiKey = currentConfig.llmApiKey;
+  }
+
+  // Preserve githubClientSecret if it's sent as masked
+  if (newConfig.githubClientSecret && newConfig.githubClientSecret.endsWith('...')) {
+    newConfig.githubClientSecret = currentConfig.githubClientSecret;
   }
 
   // Merge updates
@@ -233,6 +302,9 @@ app.post('/api/config', authMiddleware, (req, res) => {
   delete safeConfig.sessionSecret;
   if (safeConfig.llmApiKey) {
     safeConfig.llmApiKey = safeConfig.llmApiKey.substring(0, 7) + '...';
+  }
+  if (safeConfig.githubClientSecret) {
+    safeConfig.githubClientSecret = safeConfig.githubClientSecret.substring(0, 7) + '...';
   }
 
   res.json({ success: true, config: safeConfig, schedulerMessage: schedulerMsg });

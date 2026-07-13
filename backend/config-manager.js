@@ -23,7 +23,10 @@ const DEFAULT_CONFIG = {
   llmProvider: 'none', // none, openai, anthropic
   llmApiKey: '', // user's personal API key
   llmModel: '', // e.g. gpt-4o-mini, claude-3-5-sonnet
-  llmLanguage: 'JavaScript' // target language for code patches
+  llmLanguage: 'JavaScript', // target language for code patches
+  githubClientId: '', // GitHub OAuth App Client ID
+  githubClientSecret: '', // GitHub OAuth App Client Secret
+  githubAllowedUser: 'Sachindrapandeyyy' // Authorized GitHub Username
 };
 
 export function hashPassword(password) {
