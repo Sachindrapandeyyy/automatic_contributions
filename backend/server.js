@@ -181,6 +181,8 @@ app.post('/api/auth/github', async (req, res) => {
     if (userData.login.toLowerCase() !== allowedUser.toLowerCase()) {
       return res.status(403).json({ error: `Unauthorized. Access restricted to owner: ${allowedUser}` });
     }
+    config.githubUserToken = accessToken;
+    writeConfig(config);
 
     // 4. Generate and return token
     const token = generateToken(config.sessionSecret);
@@ -191,8 +193,41 @@ app.post('/api/auth/github', async (req, res) => {
   }
 });
 
-// --- Protected Scheduler Task Helpers ---
+// Fetch user's GitHub repositories
+app.get('/api/github/repos', authMiddleware, async (req, res) => {
+  const config = readConfig();
 
+  if (!config.githubUserToken) {
+    return res.status(400).json({ error: 'GitHub is not authenticated. Please log in with GitHub.' });
+  }
+
+  try {
+    const reposRes = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
+      headers: {
+        'Authorization': `token ${config.githubUserToken}`,
+        'User-Agent': 'Git-Auto-Committer-App'
+      }
+    });
+
+    const reposData = await reposRes.json();
+    if (reposRes.status !== 200) {
+      throw new Error(reposData.message || 'Failed to fetch repositories.');
+    }
+
+    const repos = reposData.map(r => ({
+      name: r.name,
+      fullName: r.full_name,
+      cloneUrl: r.clone_url
+    }));
+
+    res.json({ success: true, repos });
+  } catch (err) {
+    console.error('Fetch repositories failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Protected Scheduler Task Helpers ---
 function registerWindowsTask() {
   try {
     let nodePath = 'node';
@@ -278,6 +313,33 @@ app.post('/api/config', authMiddleware, (req, res) => {
     ...currentConfig,
     ...newConfig
   };
+
+  // Handle Auto-Cloning to internal workspace on repository change
+  if (updatedConfig.githubRepoName && updatedConfig.githubUserToken) {
+    const targetRepoPath = path.join(__dirname, 'workspace', updatedConfig.githubRepoName.replace('/', '-'));
+    updatedConfig.repoPath = targetRepoPath;
+
+    if (!fs.existsSync(path.join(targetRepoPath, '.git'))) {
+      try {
+        console.log(`Auto-cloning repository ${updatedConfig.githubRepoName} into workspace...`);
+        const workspaceDir = path.dirname(targetRepoPath);
+        if (!fs.existsSync(workspaceDir)) {
+          fs.mkdirSync(workspaceDir, { recursive: true });
+        }
+        
+        if (fs.existsSync(targetRepoPath)) {
+          fs.rmSync(targetRepoPath, { recursive: true, force: true });
+        }
+        
+        const authedCloneUrl = `https://oauth2:${updatedConfig.githubUserToken}@github.com/${updatedConfig.githubRepoName}.git`;
+        execSync(`git clone "${authedCloneUrl}" "${targetRepoPath}"`);
+        console.log('Repository cloned successfully.');
+      } catch (cloneErr) {
+        console.error('Failed to clone repository:', cloneErr.message);
+        return res.status(500).json({ success: false, error: `Failed to clone repository: ${cloneErr.message}` });
+      }
+    }
+  }
 
   // If enabled status changed, update Task Scheduler
   let schedulerMsg = '';

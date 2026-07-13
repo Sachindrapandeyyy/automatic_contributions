@@ -33,9 +33,14 @@ function App() {
     llmLanguage: 'JavaScript',
     githubClientId: '',
     githubClientSecret: '',
-    githubAllowedUser: 'Sachindrapandeyyy'
+    githubAllowedUser: 'Sachindrapandeyyy',
+    githubUserToken: '',
+    githubRepoName: '',
+    githubRepoCloneUrl: ''
   });
 
+  const [githubRepos, setGithubRepos] = useState([]);
+  const [fetchingRepos, setFetchingRepos] = useState(false);
   const [gitCommits, setGitCommits] = useState([]);
   const [schedulerHistory, setSchedulerHistory] = useState([]);
   const [phrases, setPhrases] = useState({ presets: [], customPhrases: [], usePresetPhrases: true });
@@ -92,7 +97,6 @@ function App() {
   // Check auth and handle GitHub OAuth Callback on load
   useEffect(() => {
     const checkAuthAndCallback = async () => {
-      // 1. Check if there is an OAuth code in the URL
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get('code');
       
@@ -120,20 +124,17 @@ function App() {
           setAuthError('Connection to authentication server failed.');
         } finally {
           setOauthLoading(false);
-          // Clean up url parameters
           window.history.replaceState({}, document.title, window.location.pathname);
         }
         setCheckingAuth(false);
         return;
       }
 
-      // 2. Standard status verification
       try {
         const res = await fetch(`${API_BASE}/auth/status`);
         const data = await res.json();
         setIsPasswordSet(data.passwordSet);
         
-        // If password is not configured and GitHub Client ID is not setup, bypass auth
         if (!data.passwordSet) {
           setIsLoggedIn(true);
           setCheckingAuth(false);
@@ -152,7 +153,6 @@ function App() {
           }
           setCheckingAuth(false);
         } else {
-          // If password is set or github oauth could be active, require login
           setCheckingAuth(false);
         }
       } catch (err) {
@@ -174,7 +174,35 @@ function App() {
     }
   }, [isLoggedIn]);
 
-  // Fetch initial data
+  // Fetch repositories from backend using OAuth token
+  const fetchGithubRepos = async () => {
+    if (!config.githubUserToken) return;
+    setFetchingRepos(true);
+    addLog('Fetching authorized repositories from GitHub...', 'info');
+    try {
+      const res = await authFetch(`${API_BASE}/github/repos`);
+      const data = await res.json();
+      if (data.success) {
+        setGithubRepos(data.repos || []);
+        addLog(`Successfully loaded ${data.repos.length} repositories from your GitHub account.`, 'success');
+      } else {
+        addLog(`Failed to load repositories: ${data.error}`, 'error');
+      }
+    } catch (err) {
+      addLog(`Request to load repos failed: ${err.message}`, 'error');
+    } finally {
+      setFetchingRepos(false);
+    }
+  };
+
+  // Automatically fetch repos once config is loaded and token is present
+  useEffect(() => {
+    if (isLoggedIn && config.githubUserToken) {
+      fetchGithubRepos();
+    }
+  }, [isLoggedIn, config.githubUserToken]);
+
+  // Fetch initial dashboard data
   const fetchData = async (showLog = true) => {
     try {
       if (showLog) addLog('Connecting to backend API services...', 'info');
@@ -270,8 +298,8 @@ function App() {
       return;
     }
     setOauthLoading(true);
-    // Redirect to GitHub Login OAuth Screen
-    window.location.href = `https://github.com/login/oauth/authorize?client_id=${config.githubClientId}&scope=user:email`;
+    // Request full repo access scope to allow cloning and pushing
+    window.location.href = `https://github.com/login/oauth/authorize?client_id=${config.githubClientId}&scope=repo`;
   };
 
   const handleLogout = () => {
@@ -307,7 +335,7 @@ function App() {
           addLog(data.schedulerMessage, 'info');
         }
       } else {
-        addLog('Failed to save configuration.', 'error');
+        addLog(`Failed to save config: ${data.error || 'Unknown error'}`, 'error');
       }
     } catch (err) {
       addLog(`Failed to save config: ${err.message}`, 'error');
@@ -658,8 +686,8 @@ function App() {
         </div>
         <div className="glass-panel stat-card">
           <h3>Repository Setup</h3>
-          <div className="value" style={{ fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-cyan)', marginTop: '8px' }} title={config.repoPath}>
-            {config.repoPath ? config.repoPath.split('\\').pop() : 'Not Configured'}
+          <div className="value" style={{ fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-cyan)', marginTop: '8px' }} title={config.githubRepoName || 'Not Connected'}>
+            {config.githubRepoName || 'Not Connected'}
           </div>
         </div>
       </div>
@@ -752,17 +780,62 @@ function App() {
                 </label>
               </div>
 
+              {/* Vercel-like repo selector dropdown */}
               <div className="input-group">
-                <label htmlFor="repoPath">Target Repository Directory</label>
-                <input
-                  id="repoPath"
-                  type="text"
-                  name="repoPath"
-                  className="input-text"
-                  value={config.repoPath}
-                  onChange={handleConfigChange}
-                  required
-                />
+                <label htmlFor="githubRepoName" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  Target GitHub Repository
+                  {config.githubUserToken && (
+                    <button 
+                      type="button" 
+                      onClick={fetchGithubRepos} 
+                      disabled={fetchingRepos}
+                      style={{ background: 'none', border: 'none', color: 'var(--color-cyan)', cursor: 'pointer', fontSize: '0.75rem', padding: '0', textDecoration: 'underline' }}
+                    >
+                      {fetchingRepos ? 'Loading...' : 'Refresh List'}
+                    </button>
+                  )}
+                </label>
+                {!config.githubUserToken ? (
+                  <div style={{ padding: '10px', background: 'rgba(255, 255, 255, 0.02)', border: '1px dashed var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                    Login via GitHub to select a repository.
+                  </div>
+                ) : githubRepos.length === 0 ? (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      className="input-text"
+                      placeholder="Loading repositories..."
+                      value={config.githubRepoName}
+                      readOnly
+                    />
+                  </div>
+                ) : (
+                  <select
+                    id="githubRepoName"
+                    name="githubRepoName"
+                    className="input-select"
+                    value={config.githubRepoName}
+                    onChange={(e) => {
+                      const selectedRepo = githubRepos.find(r => r.fullName === e.target.value);
+                      setConfig(prev => ({
+                        ...prev,
+                        githubRepoName: e.target.value,
+                        githubRepoCloneUrl: selectedRepo ? selectedRepo.cloneUrl : ''
+                      }));
+                    }}
+                    required
+                  >
+                    <option value="">-- Choose Repository --</option>
+                    {githubRepos.map(r => (
+                      <option key={r.fullName} value={r.fullName}>{r.fullName}</option>
+                    ))}
+                  </select>
+                )}
+                {config.githubRepoName && config.repoPath && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginTop: '6px', wordBreak: 'break-all' }}>
+                    <strong>Local Workspace:</strong> {config.repoPath}
+                  </span>
+                )}
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>

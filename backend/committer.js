@@ -210,6 +210,19 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
   // Push to remote if origin is configured and pushAfterCommit is requested
   if (pushAfterCommit) {
     try {
+      const config = readConfig();
+      if (config.githubUserToken && config.githubRepoName) {
+        const authedUrl = `https://oauth2:${config.githubUserToken}@github.com/${config.githubRepoName}.git`;
+        try {
+          execSync(`git remote set-url origin "${authedUrl}"`, { cwd: absolutePath });
+        } catch (e) {
+          try {
+            execSync(`git remote add origin "${authedUrl}"`, { cwd: absolutePath });
+          } catch (errAdd) {
+            // ignore
+          }
+        }
+      }
       const remoteCheck = execSync('git remote', { cwd: absolutePath }).toString().trim();
       if (remoteCheck) {
         const branchName = execSync('git branch --show-current', { cwd: absolutePath }).toString().trim();
@@ -274,9 +287,21 @@ export async function performDailyCommits(repoPath, phrases, count, date = new D
     const commitResult = await makeSingleCommit(absolutePath, randomPhrase, timestamps[i], false);
     results.push(commitResult);
   }
-
   // Push the final state once at the end of the batch
   try {
+    const config = readConfig();
+    if (config.githubUserToken && config.githubRepoName) {
+      const authedUrl = `https://oauth2:${config.githubUserToken}@github.com/${config.githubRepoName}.git`;
+      try {
+        execSync(`git remote set-url origin "${authedUrl}"`, { cwd: absolutePath });
+      } catch (e) {
+        try {
+          execSync(`git remote add origin "${authedUrl}"`, { cwd: absolutePath });
+        } catch (errAdd) {
+          // ignore
+        }
+      }
+    }
     const remoteCheck = execSync('git remote', { cwd: absolutePath }).toString().trim();
     if (remoteCheck) {
       const branchName = execSync('git branch --show-current', { cwd: absolutePath }).toString().trim();
@@ -286,6 +311,5 @@ export async function performDailyCommits(repoPath, phrases, count, date = new D
   } catch (pushErr) {
     console.error('Failed to push daily batch to remote:', pushErr.message);
   }
-
   return results;
 }

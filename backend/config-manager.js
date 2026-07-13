@@ -26,7 +26,10 @@ const DEFAULT_CONFIG = {
   llmLanguage: 'JavaScript', // target language for code patches
   githubClientId: '', // GitHub OAuth App Client ID
   githubClientSecret: '', // GitHub OAuth App Client Secret
-  githubAllowedUser: 'Sachindrapandeyyy' // Authorized GitHub Username
+  githubAllowedUser: 'Sachindrapandeyyy', // Authorized GitHub Username
+  githubUserToken: '', // Logged in user's GitHub OAuth Access Token
+  githubRepoName: '', // Selected repo name
+  githubRepoCloneUrl: '' // Selected repo clone URL
 };
 
 export function hashPassword(password) {
