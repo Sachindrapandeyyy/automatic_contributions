@@ -2,7 +2,7 @@ services:
   # 1. Backend Web Service (Express Server)
   - type: web
     name: git-auto-committer-backend
-    env: node
+    runtime: node
     plan: free
     buildCommand: npm install
     startCommand: node server.js
@@ -14,10 +14,10 @@ services:
   # 2. Frontend Static Site (Vite React Client)
   - type: web
     name: git-auto-committer-frontend
-    env: static
+    runtime: static
     plan: free
     buildCommand: npm install && npm run build
-    publishPath: dist
+    staticPublishPath: dist
     rootDir: frontend
     envVars:
       - key: VITE_API_BASE
