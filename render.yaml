@@ -1,0 +1,24 @@
+services:
+  # 1. Backend Web Service (Express Server)
+  - type: web
+    name: git-auto-committer-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    rootDir: backend
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+  # 2. Frontend Static Site (Vite React Client)
+  - type: web
+    name: git-auto-committer-frontend
+    env: static
+    plan: free
+    buildCommand: npm install && npm run build
+    publishPath: dist
+    rootDir: frontend
+    envVars:
+      - key: VITE_API_BASE
+        value: https://git-auto-committer-backend.onrender.com/api # Replace with your actual backend Render URL once deployed
