@@ -37,19 +37,35 @@ export function hashPassword(password) {
 }
 
 export function readConfig() {
+  let config = { ...DEFAULT_CONFIG };
   try {
-    if (!fs.existsSync(CONFIG_PATH)) {
-      writeConfig(DEFAULT_CONFIG);
-      return DEFAULT_CONFIG;
+    if (fs.existsSync(CONFIG_PATH)) {
+      const data = fs.readFileSync(CONFIG_PATH, 'utf8');
+      const parsed = JSON.parse(data);
+      config = { ...config, ...parsed };
     }
-    const data = fs.readFileSync(CONFIG_PATH, 'utf8');
-    const parsed = JSON.parse(data);
-    // Merge with defaults in case of missing keys
-    return { ...DEFAULT_CONFIG, ...parsed };
   } catch (err) {
     console.error('Error reading config file, using defaults:', err.message);
-    return DEFAULT_CONFIG;
   }
+
+  // Override/fallback to environment variables for production hosting compatibility (Render/Railway)
+  if (process.env.PASSWORD_HASH) config.passwordHash = process.env.PASSWORD_HASH;
+  if (process.env.SESSION_SECRET) config.sessionSecret = process.env.SESSION_SECRET;
+  
+  if (process.env.GITHUB_CLIENT_ID) config.githubClientId = process.env.GITHUB_CLIENT_ID;
+  if (process.env.GITHUB_CLIENT_SECRET) config.githubClientSecret = process.env.GITHUB_CLIENT_SECRET;
+  if (process.env.GITHUB_ALLOWED_USER) config.githubAllowedUser = process.env.GITHUB_ALLOWED_USER;
+  
+  if (process.env.GITHUB_USER_TOKEN) config.githubUserToken = process.env.GITHUB_USER_TOKEN;
+  if (process.env.GITHUB_REPO_NAME) config.githubRepoName = process.env.GITHUB_REPO_NAME;
+  if (process.env.GITHUB_REPO_CLONE_URL) config.githubRepoCloneUrl = process.env.GITHUB_REPO_CLONE_URL;
+  
+  if (process.env.LLM_PROVIDER) config.llmProvider = process.env.LLM_PROVIDER;
+  if (process.env.LLM_API_KEY) config.llmApiKey = process.env.LLM_API_KEY;
+  if (process.env.LLM_MODEL) config.llmModel = process.env.LLM_MODEL;
+  if (process.env.LLM_LANGUAGE) config.llmLanguage = process.env.LLM_LANGUAGE;
+
+  return config;
 }
 
 export function writeConfig(config) {
