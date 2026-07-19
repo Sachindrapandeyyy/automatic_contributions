@@ -225,9 +225,9 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
       }
       const remoteCheck = execSync('git remote', { cwd: absolutePath }).toString().trim();
       if (remoteCheck) {
-        const branchName = execSync('git branch --show-current', { cwd: absolutePath }).toString().trim();
+        const branchName = execSync('git branch --show-current', { cwd: absolutePath }).toString().trim() || 'main';
         console.log(`Pushing commit ${commitHash.substring(0, 7)} to remote: origin/${branchName}...`);
-        execSync(`git push origin ${branchName}`, { cwd: absolutePath });
+        execSync(`git push -u origin "${branchName}"`, { cwd: absolutePath });
       }
     } catch (pushErr) {
       console.error('Failed to push commit to remote:', pushErr.message);
@@ -304,9 +304,9 @@ export async function performDailyCommits(repoPath, phrases, count, date = new D
     }
     const remoteCheck = execSync('git remote', { cwd: absolutePath }).toString().trim();
     if (remoteCheck) {
-      const branchName = execSync('git branch --show-current', { cwd: absolutePath }).toString().trim();
+      const branchName = execSync('git branch --show-current', { cwd: absolutePath }).toString().trim() || 'main';
       console.log(`Pushing daily batch of ${count} commits to remote: origin/${branchName}...`);
-      execSync(`git push origin ${branchName}`, { cwd: absolutePath });
+      execSync(`git push -u origin "${branchName}"`, { cwd: absolutePath });
     }
   } catch (pushErr) {
     console.error('Failed to push daily batch to remote:', pushErr.message);
