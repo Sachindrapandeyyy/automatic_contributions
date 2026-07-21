@@ -495,8 +495,8 @@ app.post('/api/commit-now', authMiddleware, async (req, res) => {
   }
 });
 
-// Force scheduler execution trigger (clears cache)
-app.post('/api/scheduler/trigger', authMiddleware, (req, res) => {
+// Force scheduler execution trigger (clears cache, accepts any HTTP method)
+app.all('/api/scheduler/trigger', authMiddleware, (req, res) => {
   try {
     console.log('Manual trigger of scheduler script initiated.');
     const stdout = execSync(`node "${SCHEDULER_SCRIPT_PATH}"`).toString();
