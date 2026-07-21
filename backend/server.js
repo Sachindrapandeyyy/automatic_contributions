@@ -63,6 +63,12 @@ function authMiddleware(req, res, next) {
     return next();
   }
   
+  // Allow authentication via a permanent static CRON_SECRET key (for automated cloud cron triggers)
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && (req.query.secret === cronSecret || req.headers['x-cron-secret'] === cronSecret)) {
+    return next();
+  }
+  
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized. Authorization token required.' });
