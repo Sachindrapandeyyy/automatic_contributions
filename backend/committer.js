@@ -33,8 +33,13 @@ export function ensureRepositoryExists(repoPath) {
   if (!fs.existsSync(gitPath)) {
     console.log(`Initializing new Git repository at: ${absolutePath}`);
     execSync('git init', { cwd: absolutePath });
+    try {
+      execSync('git branch -M main', { cwd: absolutePath });
+    } catch (e) {
+      // ignore
+    }
     
-    // Create initial commit to establish the main/master branch
+    // Create initial commit to establish the main branch
     const readmePath = path.join(absolutePath, 'README.md');
     if (!fs.existsSync(readmePath)) {
       fs.writeFileSync(readmePath, '# Auto Committer Target Repository\n\nThis repository is used by the Auto Committer service to simulate daily coding activity.\n');
@@ -56,6 +61,14 @@ export function ensureRepositoryExists(repoPath) {
     });
   } else {
     ensureGitConfig(absolutePath);
+    try {
+      const currentBranch = execSync('git branch --show-current', { cwd: absolutePath }).toString().trim();
+      if (currentBranch === 'master' || !currentBranch) {
+        execSync('git branch -M main', { cwd: absolutePath });
+      }
+    } catch (e) {
+      // ignore
+    }
   }
 }
 
