@@ -64,16 +64,21 @@ export function readConfig() {
   if (process.env.LLM_API_KEY) config.llmApiKey = process.env.LLM_API_KEY;
   if (process.env.LLM_MODEL) config.llmModel = process.env.LLM_MODEL;
   if (process.env.LLM_LANGUAGE) config.llmLanguage = process.env.LLM_LANGUAGE;
-
   // Dynamically set repoPath to workspace folder in cloud production if GITHUB_REPO_NAME is defined
   if (config.githubRepoName) {
     const workspacePath = path.join(__dirname, 'workspace', config.githubRepoName.replace('/', '-'));
     config.repoPath = workspacePath;
   }
 
+  // Handle scheduler state persistence on cloud container restarts
+  if (process.env.SCHEDULER_ENABLED) {
+    config.enabled = process.env.SCHEDULER_ENABLED === 'true';
+  } else if (config.githubUserToken && config.githubRepoName) {
+    config.enabled = true; // Auto-enable if credentials are set in environment
+  }
+
   return config;
 }
-
 export function writeConfig(config) {
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
