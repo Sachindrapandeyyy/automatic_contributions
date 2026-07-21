@@ -9,15 +9,13 @@ import { readConfig } from './config-manager.js';
  */
 function ensureGitConfig(repoPath) {
   try {
-    execSync('git config user.name', { cwd: repoPath, stdio: 'ignore' });
-  } catch (e) {
-    try {
-      console.log('No local/global git user.name found. Configuring local repo identity...');
-      execSync('git config --local user.name "Auto Committer"', { cwd: repoPath });
-      execSync('git config --local user.email "auto-committer@example.com"', { cwd: repoPath });
-    } catch (configErr) {
-      console.error('Failed to configure local Git identity:', configErr.message);
-    }
+    const authorName = process.env.GIT_AUTHOR_NAME || process.env.GITHUB_ALLOWED_USER || 'Auto Committer';
+    const authorEmail = process.env.GIT_AUTHOR_EMAIL || 'auto-committer@example.com';
+    
+    execSync(`git config --local user.name "${authorName}"`, { cwd: repoPath });
+    execSync(`git config --local user.email "${authorEmail}"`, { cwd: repoPath });
+  } catch (configErr) {
+    console.error('Failed to configure local Git identity:', configErr.message);
   }
 }
 
