@@ -65,6 +65,12 @@ export function readConfig() {
   if (process.env.LLM_MODEL) config.llmModel = process.env.LLM_MODEL;
   if (process.env.LLM_LANGUAGE) config.llmLanguage = process.env.LLM_LANGUAGE;
 
+  // Dynamically set repoPath to workspace folder in cloud production if GITHUB_REPO_NAME is defined
+  if (config.githubRepoName) {
+    const workspacePath = path.join(__dirname, 'workspace', config.githubRepoName.replace('/', '-'));
+    config.repoPath = workspacePath;
+  }
+
   return config;
 }
 

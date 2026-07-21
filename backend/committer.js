@@ -31,6 +31,28 @@ export function ensureRepositoryExists(repoPath) {
 
   const gitPath = path.join(absolutePath, '.git');
   if (!fs.existsSync(gitPath)) {
+    // Check if we should clone instead of initializing a blank repository
+    const config = readConfig();
+    if (config.githubRepoName && config.githubUserToken && absolutePath.includes('workspace')) {
+      try {
+        console.log(`[Auto-Recover] Workspace git directory missing. Auto-cloning ${config.githubRepoName}...`);
+        if (fs.existsSync(absolutePath)) {
+          fs.rmSync(absolutePath, { recursive: true, force: true });
+        }
+        const workspaceDir = path.dirname(absolutePath);
+        if (!fs.existsSync(workspaceDir)) {
+          fs.mkdirSync(workspaceDir, { recursive: true });
+        }
+        const authedCloneUrl = `https://oauth2:${config.githubUserToken}@github.com/${config.githubRepoName}.git`;
+        execSync(`git clone "${authedCloneUrl}" "${absolutePath}"`);
+        console.log('[Auto-Recover] Repository cloned successfully.');
+        ensureGitConfig(absolutePath);
+        return;
+      } catch (cloneErr) {
+        console.error('[Auto-Recover] Failed to clone repository, falling back to local init:', cloneErr.message);
+      }
+    }
+
     console.log(`Initializing new Git repository at: ${absolutePath}`);
     execSync('git init', { cwd: absolutePath });
     try {
