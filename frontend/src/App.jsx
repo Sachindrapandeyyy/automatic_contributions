@@ -156,6 +156,7 @@ export default function App() {
         setIsPasswordSet(statusData.passwordSet);
 
         if (!statusData.passwordSet) {
+          setIsLoggedIn(true);
           setCheckingAuth(false);
         } else if (token) {
           try {
@@ -181,6 +182,25 @@ export default function App() {
     };
     checkAuth();
   }, [token, handleLogout]);
+
+  // --- Reset Password for recovery on Localhost ---
+  const handleResetPassword = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/reset`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.removeItem('git_committer_token');
+        setToken('');
+        setIsPasswordSet(false);
+        setIsLoggedIn(true);
+        showToast('Password cleared! Instance unlocked.');
+      } else {
+        setAuthError(data.error || 'Failed to reset password.');
+      }
+    } catch (err) {
+      setAuthError('Reset failed: ' + err.message);
+    }
+  };
 
   // --- Load Dashboard Data periodically ---
   useEffect(() => {
@@ -480,20 +500,35 @@ export default function App() {
   // Filtered commits for the activity table
   const filteredCommits = useMemo(() => {
     if (activeFilter === 'feat') {
-      return gitCommits.filter(c => c.message.toLowerCase().includes('feat') || c.message.toLowerCase().includes('add') || c.message.toLowerCase().includes('implement'));
+      return gitCommits.filter(c => {
+        const msg = (c.message || '').toLowerCase();
+        return msg.includes('feat') || msg.includes('add') || msg.includes('implement');
+      });
     }
     if (activeFilter === 'fix') {
-      return gitCommits.filter(c => c.message.toLowerCase().includes('fix') || c.message.toLowerCase().includes('bug') || c.message.toLowerCase().includes('patch'));
+      return gitCommits.filter(c => {
+        const msg = (c.message || '').toLowerCase();
+        return msg.includes('fix') || msg.includes('bug') || msg.includes('patch');
+      });
     }
     if (activeFilter === 'excuses') {
-      return gitCommits.filter(c => !c.message.toLowerCase().includes('feat') && !c.message.toLowerCase().includes('fix'));
+      return gitCommits.filter(c => {
+        const msg = (c.message || '').toLowerCase();
+        return !msg.includes('feat') && !msg.includes('fix');
+      });
     }
     return gitCommits;
   }, [gitCommits, activeFilter]);
 
   // Counts for filter pills
-  const featCount = useMemo(() => gitCommits.filter(c => c.message.toLowerCase().includes('feat') || c.message.toLowerCase().includes('add') || c.message.toLowerCase().includes('implement')).length, [gitCommits]);
-  const fixCount = useMemo(() => gitCommits.filter(c => c.message.toLowerCase().includes('fix') || c.message.toLowerCase().includes('bug') || c.message.toLowerCase().includes('patch')).length, [gitCommits]);
+  const featCount = useMemo(() => gitCommits.filter(c => {
+    const msg = (c.message || '').toLowerCase();
+    return msg.includes('feat') || msg.includes('add') || msg.includes('implement');
+  }).length, [gitCommits]);
+  const fixCount = useMemo(() => gitCommits.filter(c => {
+    const msg = (c.message || '').toLowerCase();
+    return msg.includes('fix') || msg.includes('bug') || msg.includes('patch');
+  }).length, [gitCommits]);
   const excuseCount = useMemo(() => Math.max(0, gitCommits.length - featCount - fixCount), [gitCommits, featCount, fixCount]);
 
   // Helper avatar URL for user identity
@@ -578,9 +613,23 @@ export default function App() {
               {/* STEP 1: PASSWORD AUTHENTICATION */}
               {activeAuthStep === 1 && (
                 <>
+                  {!isPasswordSet && (
+                    <div style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.25)', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1.25rem', color: '#93c5fd', fontSize: '0.8rem', lineHeight: '1.4' }}>
+                      <strong style={{ color: '#ffffff' }}>Instance is unlocked.</strong> No master password is currently required. You can enter the dashboard directly or set a password below to secure it.
+                      <button
+                        type="button"
+                        className="btn-primary-auth"
+                        style={{ marginTop: '0.75rem', background: '#3b82f6', borderColor: '#60a5fa', width: '100%' }}
+                        onClick={() => setIsLoggedIn(true)}
+                      >
+                        Continue to Dashboard (Unlocked) &rarr;
+                      </button>
+                    </div>
+                  )}
+
                   <form onSubmit={handleAuthSubmit} className="auth-form-fields">
                     <div className="input-group">
-                      <label>{isPasswordSet ? 'Master Password' : 'Create Master Password'}</label>
+                      <label>{isPasswordSet ? 'Master Password' : 'Create Master Password (Optional)'}</label>
                       <div className="password-input-wrapper">
                         <input
                           type={showPassword ? 'text' : 'password'}
@@ -631,6 +680,26 @@ export default function App() {
                     <button type="submit" className="btn-primary-auth">
                       {isPasswordSet ? 'Unlock Dashboard' : 'Save Password & Enter'}
                     </button>
+
+                    {isPasswordSet && (
+                      <button
+                        type="button"
+                        onClick={handleResetPassword}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#94a3b8',
+                          fontSize: '0.76rem',
+                          textDecoration: 'underline',
+                          cursor: 'pointer',
+                          marginTop: '0.6rem',
+                          width: '100%',
+                          textAlign: 'center'
+                        }}
+                      >
+                        Forgot Master Password? Reset Local Instance
+                      </button>
+                    )}
                   </form>
 
                   <div className="form-divider">
@@ -911,7 +980,7 @@ export default function App() {
             className="btn-pill-secondary"
             onClick={() => {
               const text = `GitGlobal • Contribution Activity Report\nGenerated: ${new Date().toISOString()}\nTarget: ${config.githubRepoName || 'Local Workspace'}\nTotal Commits: ${gitCommits.length}\n\n` +
-                gitCommits.map(c => `[${c.hash}] ${c.message} (${c.date})`).join('\n');
+                gitCommits.map(c => `[${c.hash || 'unknown'}] ${c.message || 'No message'} (${c.date || 'unknown'})`).join('\n');
               const blob = new Blob([text], { type: 'text/plain' });
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
@@ -1038,11 +1107,11 @@ export default function App() {
               <div className="step-indicator muted-dot"></div>
               <div className="step-info">
                 <span className="step-title">Last Commit Message</span>
-                <span className="step-detail" title={latestCommit ? latestCommit.message : 'Waiting for commit'}>
-                  {latestCommit ? (latestCommit.message.length > 26 ? latestCommit.message.substring(0, 26) + '...' : latestCommit.message) : 'Initial repository setup'}
+                <span className="step-detail" title={latestCommit?.message || 'Waiting for commit'}>
+                  {latestCommit?.message ? (latestCommit.message.length > 26 ? latestCommit.message.substring(0, 26) + '...' : latestCommit.message) : 'Initial repository setup'}
                 </span>
               </div>
-              <span className="step-time">{latestCommit ? latestCommit.date?.split(' ')[0] : 'Ready'}</span>
+              <span className="step-time">{latestCommit?.date ? latestCommit.date.split(' ')[0] : 'Ready'}</span>
             </div>
 
             <div className="timeline-step">
@@ -1251,8 +1320,9 @@ export default function App() {
               ) : (
                 filteredCommits.slice(0, 15).map((commit, i) => {
                   const isPushed = !!config.githubUserToken && !!config.githubRepoName;
-                  const isFix = commit.message.toLowerCase().includes('fix') || commit.message.toLowerCase().includes('bug');
-                  const isFeat = commit.message.toLowerCase().includes('feat') || commit.message.toLowerCase().includes('add');
+                  const commitMsg = commit.message || '';
+                  const isFix = commitMsg.toLowerCase().includes('fix') || commitMsg.toLowerCase().includes('bug');
+                  const isFeat = commitMsg.toLowerCase().includes('feat') || commitMsg.toLowerCase().includes('add');
                   const category = isFix ? 'Bugfix / Patch' : (isFeat ? 'Feature' : 'Developer Excuse');
                   const author = commit.author || config.githubAllowedUser || 'Sachindrapandeyyy';
 
@@ -1260,14 +1330,16 @@ export default function App() {
                     <tr key={commit.hash || i}>
                       <td className="td-checkbox"><input type="checkbox" readOnly /></td>
                       <td className="commit-hash-cell" style={{ cursor: 'pointer' }} onClick={() => {
-                        navigator.clipboard.writeText(commit.hash);
-                        showToast(`Copied commit #${commit.hash}`);
+                        if (commit.hash) {
+                          navigator.clipboard.writeText(commit.hash);
+                          showToast(`Copied commit #${commit.hash}`);
+                        }
                       }}>
-                        #{commit.hash}
+                        #{commit.hash || 'recent'}
                       </td>
                       <td>{category}</td>
-                      <td style={{ color: '#ffffff', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={commit.message}>
-                        {commit.message}
+                      <td style={{ color: '#ffffff', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={commitMsg}>
+                        {commitMsg || 'Empty commit message'}
                       </td>
                       <td>{config.githubRepoName ? config.githubRepoName.split('/').pop() : 'Workspace'}</td>
                       <td>{commit.date ? commit.date.split(' ')[0] : 'Today'}</td>

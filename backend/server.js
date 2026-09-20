@@ -134,6 +134,14 @@ app.post('/api/auth/login', (req, res) => {
   res.json({ success: true, token });
 });
 
+// Reset Master Password (accessible locally or for recovery)
+app.post('/api/auth/reset', (req, res) => {
+  const config = readConfig();
+  config.passwordHash = null;
+  writeConfig(config);
+  res.json({ success: true, message: 'Master password has been reset successfully.' });
+});
+
 // GitHub OAuth authentication endpoint
 app.post('/api/auth/github', async (req, res) => {
   const { code } = req.body;
