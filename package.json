@@ -4,6 +4,8 @@
   "description": "Auto Git Committer Application",
   "scripts": {
     "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run server",
     "server": "npm start --prefix backend",
     "client": "npm run dev --prefix frontend",
     "dev": "concurrently -n \"server,client\" -c \"cyan,magenta\" \"npm run server\" \"npm run client\""

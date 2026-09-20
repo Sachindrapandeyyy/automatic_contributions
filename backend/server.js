@@ -519,6 +519,256 @@ app.all('/api/scheduler/trigger', authMiddleware, (req, res) => {
   }
 });
 
+// --- Static Frontend & Service Node UI Serving ---
+const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
+
+if (fs.existsSync(FRONTEND_DIST)) {
+  app.use(express.static(FRONTEND_DIST));
+}
+
+// Dedicated Service Node Status UI endpoint
+app.get('/service-status', (req, res) => {
+  const config = readConfig();
+  const uptimeSeconds = Math.floor(process.uptime());
+  const uptimeStr = `${Math.floor(uptimeSeconds / 60)}m ${uptimeSeconds % 60}s`;
+
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GitGlobal • Service Node Monitor</title>
+  <style>
+    :root {
+      --bg: #090a0f;
+      --card: #12141c;
+      --border: #1e2230;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #f2795a;
+      --green: #22c55e;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1.5rem;
+    }
+    .service-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      max-width: 580px;
+      width: 100%;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.25rem;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--green);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+    .pulse {
+      width: 8px;
+      height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--green);
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .stat-item {
+      background: #171a24;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+    .stat-value {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0.75rem 1.25rem;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: #e06849;
+    }
+    .btn-secondary {
+      background: #202434;
+      color: #cbd5e1;
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: #2a3044;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="service-card">
+    <div class="header">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" color="#f2795a">
+          <circle cx="12" cy="18" r="3"></circle>
+          <circle cx="6" cy="6" r="3"></circle>
+          <circle cx="18" cy="6" r="3"></circle>
+          <path d="M18 9v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"></path>
+          <path d="M12 12v3"></path>
+        </svg>
+        <span>GitGlobal Service Node</span>
+      </div>
+      <div class="badge">
+        <div class="pulse"></div>
+        <span>PORT 5000 ONLINE</span>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-item">
+        <div class="stat-label">Engine Mode</div>
+        <div class="stat-value" style="color: ${config.enabled ? '#22c55e' : '#f59e0b'}">
+          ${config.enabled ? 'Armed / Active Sync' : 'Idle / Manual Mode'}
+        </div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Service Uptime</div>
+        <div class="stat-value">${uptimeStr}</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Daily Target</div>
+        <div class="stat-value">${config.minCommits} - ${config.maxCommits} commits</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Target Repository</div>
+        <div class="stat-value" style="font-size: 0.95rem; font-family: monospace;">
+          ${config.githubRepoName || 'Local target-repo'}
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <a href="/" class="btn btn-primary">
+        Launch Full GitGlobal Dashboard &rarr;
+      </a>
+      <div style="display: flex; gap: 0.75rem;">
+        <button onclick="triggerScheduler()" class="btn btn-secondary" style="flex: 1;">
+          ⚡ Run Scheduler Now
+        </button>
+        <button onclick="triggerCommit()" class="btn btn-secondary" style="flex: 1;">
+          + Instant Commit
+        </button>
+      </div>
+      <div id="service-msg" style="margin-top: 6px; font-size: 0.78rem; text-align: center; color: var(--muted); min-height: 1.2rem;"></div>
+    </div>
+  </div>
+
+  <script>
+    async function triggerScheduler() {
+      const msg = document.getElementById('service-msg');
+      msg.textContent = 'Triggering scheduler execution...';
+      try {
+        const res = await fetch('/api/scheduler/trigger', { method: 'POST' });
+        const d = await res.json();
+        msg.textContent = d.success ? 'Scheduler executed successfully!' : ('Error: ' + d.error);
+        msg.style.color = d.success ? '#22c55e' : '#ef4444';
+      } catch (e) {
+        msg.textContent = 'Network error: ' + e.message;
+        msg.style.color = '#ef4444';
+      }
+    }
+    async function triggerCommit() {
+      const msg = document.getElementById('service-msg');
+      msg.textContent = 'Creating instant commit...';
+      try {
+        const res = await fetch('/api/commit-now', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ count: 1, phrase: 'Manual service ping commit' })
+        });
+        const d = await res.json();
+        msg.textContent = d.success ? 'Commit created successfully: #' + (d.commits && d.commits[0] ? d.commits[0].hash : '') : ('Error: ' + d.error);
+        msg.style.color = d.success ? '#22c55e' : '#ef4444';
+      } catch (e) {
+        msg.textContent = 'Network error: ' + e.message;
+        msg.style.color = '#ef4444';
+      }
+    }
+  </script>
+</body>
+</html>`);
+});
+
+// For any non-API route, serve the frontend SPA
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  const indexPath = path.join(FRONTEND_DIST, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  res.redirect('/service-status');
+});
+
 // Start express server
 app.listen(PORT, () => {
   console.log(`Git Auto-Committer API running on port ${PORT}`);
