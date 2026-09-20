@@ -27,6 +27,7 @@ const DEFAULT_CONFIG = {
   githubClientId: '', // GitHub OAuth App Client ID
   githubClientSecret: '', // GitHub OAuth App Client Secret
   githubAllowedUser: 'Sachindrapandeyyy', // Authorized GitHub Username
+  githubEmail: 'sachindrapandey328@gmail.com', // GitHub profile email for commit attribution
   githubUserToken: '', // Logged in user's GitHub OAuth Access Token
   githubRepoName: '', // Selected repo name
   githubRepoCloneUrl: '' // Selected repo clone URL
@@ -55,6 +56,7 @@ export function readConfig() {
   if (process.env.GITHUB_CLIENT_ID) config.githubClientId = process.env.GITHUB_CLIENT_ID;
   if (process.env.GITHUB_CLIENT_SECRET) config.githubClientSecret = process.env.GITHUB_CLIENT_SECRET;
   if (process.env.GITHUB_ALLOWED_USER) config.githubAllowedUser = process.env.GITHUB_ALLOWED_USER;
+  if (process.env.GITHUB_EMAIL) config.githubEmail = process.env.GITHUB_EMAIL;
   
   if (process.env.GITHUB_USER_TOKEN) config.githubUserToken = process.env.GITHUB_USER_TOKEN;
   if (process.env.GITHUB_REPO_NAME) config.githubRepoName = process.env.GITHUB_REPO_NAME;

@@ -317,8 +317,15 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
-        showToast(`Successfully created ${data.commits?.length || 1} commit(s)!`);
-        addLog(`Registered ${data.commits?.length || 1} commit(s) to git log.`, 'success');
+        const count = data.commits?.length || 1;
+        const firstCommit = data.commits?.[0];
+        if (firstCommit?.pushed) {
+          showToast(`Successfully created & pushed ${count} commit(s) to GitHub!`);
+          addLog(`Pushed ${count} commit(s) to origin/main (Attributed to ${config.githubEmail || 'GitHub Profile'}).`, 'success');
+        } else {
+          showToast(`Created ${count} commit(s) locally in workspace.`);
+          addLog(`Registered ${count} commit(s) locally. Note: Remote push skipped (${firstCommit?.pushError || 'Configure Remote Repo & PAT in Settings'}).`, 'info');
+        }
         setShowManualCommitModal(false);
         setManualPhraseInput('');
         fetchData(false);
@@ -1632,6 +1639,19 @@ export default function App() {
                   placeholder="Sachindrapandeyyy/automatic_contributions"
                   style={{ marginTop: userRepos.length > 0 ? '6px' : '0' }}
                 />
+              </div>
+
+              <div className="form-row">
+                <label>GitHub Profile Email (Required for Green Contribution Tiles)</label>
+                <input
+                  type="email"
+                  value={config.githubEmail || ''}
+                  onChange={(e) => setConfig({ ...config, githubEmail: e.target.value })}
+                  placeholder="sachindrapandey328@gmail.com"
+                />
+                <span className="field-hint" style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '4px', display: 'block' }}>
+                  Must match an email verified on your GitHub account (GitHub &rarr; Settings &rarr; Emails) so GitHub counts commits on your profile graph.
+                </span>
               </div>
 
               <div className="name-fields-row">

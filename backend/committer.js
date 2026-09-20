@@ -26,7 +26,7 @@ function ensureGitConfig(repoPath) {
   try {
     const config = readConfig();
     const authorName = process.env.GIT_AUTHOR_NAME || process.env.GITHUB_ALLOWED_USER || config.githubAllowedUser || 'Auto Committer';
-    const authorEmail = process.env.GIT_AUTHOR_EMAIL || (config.githubAllowedUser ? `${config.githubAllowedUser}@users.noreply.github.com` : 'auto-committer@example.com');
+    const authorEmail = config.githubEmail || process.env.GIT_AUTHOR_EMAIL || (config.githubAllowedUser ? `${config.githubAllowedUser}@users.noreply.github.com` : 'sachindrapandey328@gmail.com');
     
     execFileSync('git', ['config', '--local', 'user.name', authorName], { cwd: repoPath });
     execFileSync('git', ['config', '--local', 'user.email', authorEmail], { cwd: repoPath });
@@ -94,10 +94,17 @@ export function ensureRepositoryExists(repoPath) {
     const now = new Date();
     now.setHours(9, 0, 0, 0);
     const dateStr = now.toISOString();
+    const authorName = process.env.GIT_AUTHOR_NAME || process.env.GITHUB_ALLOWED_USER || config.githubAllowedUser || 'Auto Committer';
+    const authorEmail = config.githubEmail || process.env.GIT_AUTHOR_EMAIL || (config.githubAllowedUser ? `${config.githubAllowedUser}@users.noreply.github.com` : 'sachindrapandey328@gmail.com');
+    
     execFileSync('git', ['commit', '-m', 'Initial commit - Repository Setup'], {
       cwd: absolutePath,
       env: {
         ...process.env,
+        GIT_AUTHOR_NAME: authorName,
+        GIT_AUTHOR_EMAIL: authorEmail,
+        GIT_COMMITTER_NAME: authorName,
+        GIT_COMMITTER_EMAIL: authorEmail,
         GIT_AUTHOR_DATE: dateStr,
         GIT_COMMITTER_DATE: dateStr
       }
@@ -260,7 +267,7 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
   
   // Commit with custom environment date and author variables
   const authorName = process.env.GIT_AUTHOR_NAME || process.env.GITHUB_ALLOWED_USER || config.githubAllowedUser || 'Auto Committer';
-  const authorEmail = process.env.GIT_AUTHOR_EMAIL || (config.githubAllowedUser ? `${config.githubAllowedUser}@users.noreply.github.com` : 'auto-committer@example.com');
+  const authorEmail = config.githubEmail || process.env.GIT_AUTHOR_EMAIL || (config.githubAllowedUser ? `${config.githubAllowedUser}@users.noreply.github.com` : 'sachindrapandey328@gmail.com');
   
   execFileSync('git', ['commit', '-m', commitMessage], {
     cwd: absolutePath,
@@ -276,6 +283,9 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
   });
 
   const commitHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: absolutePath }).toString().trim();
+
+  let pushed = false;
+  let pushError = null;
 
   // Push to remote if origin is configured and pushAfterCommit is requested
   if (pushAfterCommit) {
@@ -298,9 +308,13 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
         const branchName = execSync('git branch --show-current', { cwd: absolutePath }).toString().trim() || 'main';
         console.log(`Pushing commit ${commitHash.substring(0, 7)} to remote: origin/${branchName}...`);
         execSync(`git push -u origin "${branchName}"`, { cwd: absolutePath });
+        pushed = true;
+      } else {
+        pushError = 'No remote GitHub repository configured. Commit created locally in workspace.';
       }
     } catch (pushErr) {
       console.error('Failed to push commit to remote:', pushErr.message);
+      pushError = pushErr.message;
     }
   }
 
@@ -308,7 +322,9 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
     hash: commitHash.substring(0, 7),
     phrase: commitMessage,
     date: dateStr,
-    isLLM
+    isLLM,
+    pushed,
+    pushError
   };
 }
 
@@ -363,6 +379,9 @@ export async function performDailyCommits(repoPath, phrases, count, date = new D
     const commitResult = await makeSingleCommit(absolutePath, randomPhrase, timestamps[i], false);
     results.push(commitResult);
   }
+
+  let pushed = false;
+  let pushError = null;
   // Push the final state once at the end of the batch
   try {
     const config = readConfig();
@@ -383,9 +402,13 @@ export async function performDailyCommits(repoPath, phrases, count, date = new D
       const branchName = execSync('git branch --show-current', { cwd: absolutePath }).toString().trim() || 'main';
       console.log(`Pushing daily batch of ${count} commits to remote: origin/${branchName}...`);
       execSync(`git push -u origin "${branchName}"`, { cwd: absolutePath });
+      pushed = true;
+    } else {
+      pushError = 'No remote GitHub repository configured. Commits created locally in workspace.';
     }
   } catch (pushErr) {
     console.error('Failed to push daily batch to remote:', pushErr.message);
+    pushError = pushErr.message;
   }
-  return results;
+  return results.map(r => ({ ...r, pushed, pushError }));
 }
