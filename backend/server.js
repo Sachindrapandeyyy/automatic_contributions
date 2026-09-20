@@ -801,7 +801,36 @@ app.get('*', (req, res, next) => {
   res.redirect('/service-status');
 });
 
+// Start in-process background scheduler for cloud hosting (Render / Railway / Linux)
+function startInProcessScheduler() {
+  const CHECK_INTERVAL_MS = 15 * 60 * 1000; // Check every 15 minutes
+  setInterval(async () => {
+    try {
+      const config = readConfig();
+      if (!config.enabled) return;
+      
+      const now = new Date();
+      const currentHour = now.getHours();
+      const startH = config.startHour !== undefined ? config.startHour : 9;
+      const endH = config.endHour !== undefined ? config.endHour : 18;
+      
+      if (currentHour >= startH && currentHour <= endH) {
+        console.log('[In-Process Scheduler] Cloud heartbeat check triggered. Running scheduler...');
+        try {
+          execSync(`node "${SCHEDULER_SCRIPT_PATH}"`, { stdio: 'inherit' });
+          clearGitCache();
+        } catch (execErr) {
+          console.error('[In-Process Scheduler] Execution warning:', execErr.message);
+        }
+      }
+    } catch (err) {
+      console.error('[In-Process Scheduler] Heartbeat error:', err.message);
+    }
+  }, CHECK_INTERVAL_MS);
+}
+
 // Start express server
 app.listen(PORT, () => {
   console.log(`Git Auto-Committer API running on port ${PORT}`);
+  startInProcessScheduler();
 });
