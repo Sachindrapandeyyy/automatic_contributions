@@ -4,6 +4,21 @@ import { execSync, execFileSync } from 'child_process';
 import { readConfig } from './config-manager.js';
 
 /**
+ * Resolves a secure, authenticated GitHub remote URL using PAT token or OAuth token.
+ * Uses official GitHub format: https://<username>:<token>@github.com/<owner>/<repo>.git
+ * or https://<token>@github.com/<owner>/<repo>.git
+ */
+export function getAuthenticatedGitUrl(token, repoName, username) {
+  if (!token || !repoName) return '';
+  const cleanRepo = repoName.replace(/^\/+|\/+$/g, '').replace(/\.git$/, '');
+  const cleanToken = token.trim();
+  if (username && username.trim()) {
+    return `https://${encodeURIComponent(username.trim())}:${encodeURIComponent(cleanToken)}@github.com/${cleanRepo}.git`;
+  }
+  return `https://${encodeURIComponent(cleanToken)}@github.com/${cleanRepo}.git`;
+}
+
+/**
  * Ensures git local configuration is set up in the target repository.
  * @param {string} repoPath 
  */
@@ -13,8 +28,8 @@ function ensureGitConfig(repoPath) {
     const authorName = process.env.GIT_AUTHOR_NAME || process.env.GITHUB_ALLOWED_USER || config.githubAllowedUser || 'Auto Committer';
     const authorEmail = process.env.GIT_AUTHOR_EMAIL || (config.githubAllowedUser ? `${config.githubAllowedUser}@users.noreply.github.com` : 'auto-committer@example.com');
     
-    execSync(`git config --local user.name "${authorName}"`, { cwd: repoPath });
-    execSync(`git config --local user.email "${authorEmail}"`, { cwd: repoPath });
+    execFileSync('git', ['config', '--local', 'user.name', authorName], { cwd: repoPath });
+    execFileSync('git', ['config', '--local', 'user.email', authorEmail], { cwd: repoPath });
   } catch (configErr) {
     console.error('Failed to configure local Git identity:', configErr.message);
   }
@@ -44,7 +59,7 @@ export function ensureRepositoryExists(repoPath) {
         if (!fs.existsSync(workspaceDir)) {
           fs.mkdirSync(workspaceDir, { recursive: true });
         }
-        const authedCloneUrl = `https://oauth2:${config.githubUserToken}@github.com/${config.githubRepoName}.git`;
+        const authedCloneUrl = getAuthenticatedGitUrl(config.githubUserToken, config.githubRepoName, config.githubAllowedUser);
         execSync(`git clone "${authedCloneUrl}" "${absolutePath}"`);
         console.log('[Auto-Recover] Repository cloned successfully.');
         ensureGitConfig(absolutePath);
@@ -54,10 +69,15 @@ export function ensureRepositoryExists(repoPath) {
       }
     }
 
+    // CRITICAL: Ensure directory exists on filesystem before any git invocation
+    if (!fs.existsSync(absolutePath)) {
+      fs.mkdirSync(absolutePath, { recursive: true });
+    }
+
     console.log(`Initializing new Git repository at: ${absolutePath}`);
-    execSync('git init', { cwd: absolutePath });
+    execFileSync('git', ['init'], { cwd: absolutePath });
     try {
-      execSync('git branch -M main', { cwd: absolutePath });
+      execFileSync('git', ['branch', '-M', 'main'], { cwd: absolutePath });
     } catch (e) {
       // ignore
     }
@@ -69,12 +89,12 @@ export function ensureRepositoryExists(repoPath) {
     }
     
     ensureGitConfig(absolutePath);
-    execSync('git add README.md', { cwd: absolutePath });
+    execFileSync('git', ['add', 'README.md'], { cwd: absolutePath });
     
     const now = new Date();
     now.setHours(9, 0, 0, 0);
     const dateStr = now.toISOString();
-    execSync('git commit -m "Initial commit - Repository Setup"', {
+    execFileSync('git', ['commit', '-m', 'Initial commit - Repository Setup'], {
       cwd: absolutePath,
       env: {
         ...process.env,
@@ -82,12 +102,21 @@ export function ensureRepositoryExists(repoPath) {
         GIT_COMMITTER_DATE: dateStr
       }
     });
+
+    if (config.githubRepoName && config.githubUserToken) {
+      try {
+        const authedUrl = getAuthenticatedGitUrl(config.githubUserToken, config.githubRepoName, config.githubAllowedUser);
+        execFileSync('git', ['remote', 'add', 'origin', authedUrl], { cwd: absolutePath });
+      } catch (e) {
+        // ignore
+      }
+    }
   } else {
     ensureGitConfig(absolutePath);
     try {
-      const currentBranch = execSync('git branch --show-current', { cwd: absolutePath }).toString().trim();
+      const currentBranch = execFileSync('git', ['branch', '--show-current'], { cwd: absolutePath }).toString().trim();
       if (currentBranch === 'master' || !currentBranch) {
-        execSync('git branch -M main', { cwd: absolutePath });
+        execFileSync('git', ['branch', '-M', 'main'], { cwd: absolutePath });
       }
     } catch (e) {
       // ignore
@@ -253,7 +282,7 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
     try {
       const config = readConfig();
       if (config.githubUserToken && config.githubRepoName) {
-        const authedUrl = `https://oauth2:${config.githubUserToken}@github.com/${config.githubRepoName}.git`;
+        const authedUrl = getAuthenticatedGitUrl(config.githubUserToken, config.githubRepoName, config.githubAllowedUser);
         try {
           execSync(`git remote set-url origin "${authedUrl}"`, { cwd: absolutePath });
         } catch (e) {
@@ -338,7 +367,7 @@ export async function performDailyCommits(repoPath, phrases, count, date = new D
   try {
     const config = readConfig();
     if (config.githubUserToken && config.githubRepoName) {
-      const authedUrl = `https://oauth2:${config.githubUserToken}@github.com/${config.githubRepoName}.git`;
+      const authedUrl = getAuthenticatedGitUrl(config.githubUserToken, config.githubRepoName, config.githubAllowedUser);
       try {
         execSync(`git remote set-url origin "${authedUrl}"`, { cwd: absolutePath });
       } catch (e) {

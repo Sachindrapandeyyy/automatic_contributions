@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { readConfig, writeConfig, hashPassword } from './config-manager.js';
-import { makeSingleCommit, performDailyCommits, ensureRepositoryExists } from './committer.js';
+import { makeSingleCommit, performDailyCommits, ensureRepositoryExists, getAuthenticatedGitUrl } from './committer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -366,11 +366,19 @@ app.post('/api/config', authMiddleware, (req, res) => {
           fs.rmSync(targetRepoPath, { recursive: true, force: true });
         }
         
-        const authedCloneUrl = `https://oauth2:${updatedConfig.githubUserToken}@github.com/${updatedConfig.githubRepoName}.git`;
+        const authedCloneUrl = getAuthenticatedGitUrl(updatedConfig.githubUserToken, updatedConfig.githubRepoName, updatedConfig.githubAllowedUser);
         execSync(`git clone "${authedCloneUrl}" "${targetRepoPath}"`);
         console.log('Repository cloned successfully.');
       } catch (cloneErr) {
         console.error('Failed to clone repository:', cloneErr.message);
+        if (!fs.existsSync(targetRepoPath)) {
+          fs.mkdirSync(targetRepoPath, { recursive: true });
+        }
+        try {
+          execSync('git init', { cwd: targetRepoPath });
+        } catch (initErr) {
+          // ignore
+        }
         return res.status(500).json({ success: false, error: `Failed to clone repository: ${cloneErr.message}` });
       }
     }
