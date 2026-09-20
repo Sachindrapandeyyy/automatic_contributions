@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 
 const DEFAULT_CONFIG = {
-  repoPath: 'C:\\Users\\Sachi\\.gemini\\antigravity\\scratch\\git-auto-committer\\target-repo',
+  repoPath: path.join(__dirname, 'workspace', 'target-repo'),
   minCommits: 1,
   maxCommits: 15,
   startHour: 9,

@@ -1,21 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000/api';
 
-const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function App() {
-  // Auth states
+export default function App() {
+  // --- Authentication States ---
   const [token, setToken] = useState(localStorage.getItem('git_committer_token') || '');
   const [isPasswordSet, setIsPasswordSet] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authPassword, setAuthPassword] = useState('');
   const [authConfirmPassword, setAuthConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState('');
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [oauthLoading, setOauthLoading] = useState(false);
+  const [activeAuthStep, setActiveAuthStep] = useState(1);
 
-  // App states
+  // --- Core Engine States ---
   const [config, setConfig] = useState({
     repoPath: '',
     minCommits: 1,
@@ -29,184 +29,82 @@ function App() {
     lastRunDate: null,
     llmProvider: 'none',
     llmApiKey: '',
-    llmModel: '',
+    llmModel: 'gpt-4o-mini',
     llmLanguage: 'JavaScript',
     githubClientId: '',
     githubClientSecret: '',
     githubAllowedUser: 'Sachindrapandeyyy',
     githubUserToken: '',
-    githubRepoName: '',
-    githubRepoCloneUrl: ''
+    githubRepoName: ''
   });
 
-  const [githubRepos, setGithubRepos] = useState([]);
-  const [fetchingRepos, setFetchingRepos] = useState(false);
   const [gitCommits, setGitCommits] = useState([]);
-  const [schedulerHistory, setSchedulerHistory] = useState([]);
   const [phrases, setPhrases] = useState({ presets: [], customPhrases: [], usePresetPhrases: true });
-  const [newPhrase, setNewPhrase] = useState('');
+  const [newCustomPhrase, setNewCustomPhrase] = useState('');
+  const [phraseSearch, setPhraseSearch] = useState('');
   const [logs, setLogs] = useState([]);
-  
-  // Manual trigger states
-  const [manualCount, setManualCount] = useState(1);
-  const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
-  const [manualPhrase, setManualPhrase] = useState('');
-  const [selectedPresetPhrase, setSelectedPresetPhrase] = useState('');
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [triggeringScheduler, setTriggeringScheduler] = useState(false);
-  const [hoveredDay, setHoveredDay] = useState(null);
+  const [toastMessage, setToastMessage] = useState('');
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [selectedTimeframe, setSelectedTimeframe] = useState('week');
 
-  const consoleEndRef = useRef(null);
+  // --- GitHub Repos Dropdown ---
+  const [userRepos, setUserRepos] = useState([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
 
-  // Add line to terminal logger
+  // --- Modals States ---
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showPhrasesModal, setShowPhrasesModal] = useState(false);
+  const [showManualCommitModal, setShowManualCommitModal] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [showTerminalOverlay, setShowTerminalOverlay] = useState(false);
+
+  // --- Manual Commit Form States ---
+  const [manualCount, setManualCount] = useState(1);
+  const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
+  const [manualPhraseInput, setManualPhraseInput] = useState('');
+
+  // Logging & Toast
   const addLog = (message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, { timestamp, message, type }]);
+    setLogs(prev => [...prev.slice(-90), { timestamp, message, type }]);
   };
 
-  useEffect(() => {
-    if (consoleEndRef.current) {
-      consoleEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [logs]);
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 3400);
+  };
 
-  // Auth fetch helper
-  const authFetch = async (url, options = {}) => {
+  // Auth fetch wrapper
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('git_committer_token');
+    setToken('');
+    setIsLoggedIn(false);
+    showToast('Session locked.');
+  }, []);
+
+  // Auth fetch wrapper
+  const authFetch = useCallback(async (url, options = {}) => {
     const headers = {
       'Content-Type': 'application/json',
       ...options.headers,
     };
-    
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-
-    const res = await fetch(url, { ...options, headers });
-    
-    if (res.status === 401) {
+    const response = await fetch(url, { ...options, headers });
+    if (response.status === 401) {
       handleLogout();
       throw new Error('Session expired. Please log in again.');
     }
-    
-    return res;
-  };
+    return response;
+  }, [token, handleLogout]);
 
-  // Check auth and handle GitHub OAuth Callback on load
-  useEffect(() => {
-    const checkAuthAndCallback = async () => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const code = urlParams.get('code');
-      
-      if (code) {
-        setOauthLoading(true);
-        addLog('Exchanging authorization code with GitHub...', 'info');
-        try {
-          const res = await fetch(`${API_BASE}/auth/github`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code })
-          });
-          const data = await res.json();
-          
-          if (data.success) {
-            localStorage.setItem('git_committer_token', data.token);
-            setToken(data.token);
-            setIsLoggedIn(true);
-            addLog(`GitHub Authentication successful. Welcome, ${data.username}!`, 'success');
-          } else {
-            setAuthError(data.error || 'GitHub Authentication failed.');
-            addLog(`GitHub OAuth failed: ${data.error}`, 'error');
-          }
-        } catch (e) {
-          setAuthError('Connection to authentication server failed.');
-        } finally {
-          setOauthLoading(false);
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-        setCheckingAuth(false);
-        return;
-      }
-
-      try {
-        const res = await fetch(`${API_BASE}/auth/status`);
-        const data = await res.json();
-        setIsPasswordSet(data.passwordSet);
-        
-        if (!data.passwordSet) {
-          setIsLoggedIn(true);
-          setCheckingAuth(false);
-        } else if (token) {
-          try {
-            const configRes = await fetch(`${API_BASE}/config`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (configRes.status === 200) {
-              setIsLoggedIn(true);
-            } else {
-              handleLogout();
-            }
-          } catch (e) {
-            handleLogout();
-          }
-          setCheckingAuth(false);
-        } else {
-          setCheckingAuth(false);
-        }
-      } catch (err) {
-        console.error('Auth verification failed:', err);
-        setCheckingAuth(false);
-      }
-    };
-    checkAuthAndCallback();
-  }, [token]);
-
-  // Load app data once logged in
-  useEffect(() => {
-    if (isLoggedIn) {
-      fetchData();
-      const interval = setInterval(() => {
-        fetchData(false);
-      }, 10000);
-      return () => clearInterval(interval);
-    }
-  }, [isLoggedIn]);
-
-  // Fetch repositories from backend using OAuth token
-  const fetchGithubRepos = async () => {
-    if (!config.githubUserToken) return;
-    setFetchingRepos(true);
-    addLog('Fetching authorized repositories from GitHub...', 'info');
+  const fetchData = useCallback(async (initial = false) => {
     try {
-      const res = await authFetch(`${API_BASE}/github/repos`);
-      const data = await res.json();
-      if (data.success) {
-        setGithubRepos(data.repos || []);
-        addLog(`Successfully loaded ${data.repos.length} repositories from your GitHub account.`, 'success');
-      } else {
-        addLog(`Failed to load repositories: ${data.error}`, 'error');
-      }
-    } catch (err) {
-      addLog(`Request to load repos failed: ${err.message}`, 'error');
-    } finally {
-      setFetchingRepos(false);
-    }
-  };
+      if (initial) addLog('Synchronizing with GitGlobal engine...', 'info');
 
-  // Automatically fetch repos once config is loaded and token is present
-  useEffect(() => {
-    if (isLoggedIn && config.githubUserToken) {
-      fetchGithubRepos();
-    }
-  }, [isLoggedIn, config.githubUserToken]);
-
-  // Fetch initial dashboard data
-  const fetchData = async (showLog = true) => {
-    try {
-      if (showLog) addLog('Connecting to backend API services...', 'info');
-      
       const configRes = await authFetch(`${API_BASE}/config`);
       const configData = await configRes.json();
       setConfig(configData);
@@ -219,109 +117,234 @@ function App() {
       const historyData = await historyRes.json();
       if (historyData.success) {
         setGitCommits(historyData.gitCommits || []);
-        setSchedulerHistory(historyData.schedulerHistory || []);
       }
-
-      if (showLog) addLog('System state loaded successfully.', 'success');
-      setLoading(false);
     } catch (err) {
-      console.error(err);
-      addLog(`API connection failed: ${err.message}`, 'error');
-      setLoading(false);
+      addLog(`Sync issue: ${err.message}`, 'error');
     }
-  };
+  }, [authFetch]);
 
-  const handleSetupPassword = async (e) => {
+  // --- Initial Auth Check & OAuth Callback ---
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+
+        if (code) {
+          setOauthLoading(true);
+          window.history.replaceState({}, document.title, window.location.pathname);
+          const res = await fetch(`${API_BASE}/auth/github`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code })
+          });
+          const data = await res.json();
+          if (data.success && data.token) {
+            localStorage.setItem('git_committer_token', data.token);
+            setToken(data.token);
+            setIsLoggedIn(true);
+            showToast(`Welcome back, ${data.username || 'Developer'}!`);
+          } else {
+            setAuthError(data.error || 'GitHub Authentication failed');
+          }
+          setOauthLoading(false);
+          setCheckingAuth(false);
+          return;
+        }
+
+        const statusRes = await fetch(`${API_BASE}/auth/status`);
+        const statusData = await statusRes.json();
+        setIsPasswordSet(statusData.passwordSet);
+
+        if (!statusData.passwordSet) {
+          setCheckingAuth(false);
+        } else if (token) {
+          try {
+            const configRes = await fetch(`${API_BASE}/config`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (configRes.status === 200) {
+              setIsLoggedIn(true);
+            } else {
+              handleLogout();
+            }
+          } catch {
+            handleLogout();
+          }
+          setCheckingAuth(false);
+        } else {
+          setCheckingAuth(false);
+        }
+      } catch (err) {
+        console.error('Auth verification failed:', err);
+        setCheckingAuth(false);
+      }
+    };
+    checkAuth();
+  }, [token, handleLogout]);
+
+  // --- Load Dashboard Data periodically ---
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchData(true);
+      const timer = setInterval(() => fetchData(false), 12000);
+      return () => clearInterval(timer);
+    }
+  }, [isLoggedIn, fetchData]);
+
+  // --- Auth Form Submit (Strictly Password without fake Google/email fields) ---
+  const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError('');
-    
-    if (authPassword.length < 6) {
-      setAuthError('Password must be at least 6 characters.');
-      return;
-    }
-    
-    if (authPassword !== authConfirmPassword) {
-      setAuthError('Passwords do not match.');
-      return;
-    }
 
+    if (!isPasswordSet) {
+      if (authPassword.length < 6) {
+        setAuthError('Password must be at least 6 characters.');
+        return;
+      }
+      if (authConfirmPassword && authPassword !== authConfirmPassword) {
+        setAuthError('Passwords do not match.');
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/auth/setup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: authPassword })
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+          localStorage.setItem('git_committer_token', data.token);
+          setToken(data.token);
+          setIsPasswordSet(true);
+          setIsLoggedIn(true);
+          showToast('Master password initialized!');
+        } else {
+          setAuthError(data.error || 'Setup failed.');
+        }
+      } catch (err) {
+        setAuthError('Connection error: ' + err.message);
+      }
+    } else {
+      try {
+        const res = await fetch(`${API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: authPassword })
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+          localStorage.setItem('git_committer_token', data.token);
+          setToken(data.token);
+          setIsLoggedIn(true);
+          showToast('Session unlocked.');
+        } else {
+          setAuthError(data.error || 'Invalid master password.');
+        }
+      } catch (err) {
+        setAuthError('Login failed: ' + err.message);
+      }
+    }
+  };
+
+  // --- GitHub OAuth Trigger ---
+  const handleGitHubAuthClick = () => {
+    if (config.githubClientId) {
+      window.location.href = `https://github.com/login/oauth/authorize?client_id=${config.githubClientId}&scope=repo`;
+    } else {
+      showToast('GitHub OAuth Client ID is not configured yet. Please enter your PAT in Settings.');
+      setShowSettingsModal(true);
+    }
+  };
+
+  // --- Fetch GitHub Repos via PAT ---
+  const handleFetchUserRepos = async () => {
+    if (!config.githubUserToken) {
+      showToast('Please provide a GitHub Personal Access Token (PAT) first.');
+      return;
+    }
+    setLoadingRepos(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/setup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: authPassword })
-      });
+      const res = await authFetch(`${API_BASE}/github/repos`);
       const data = await res.json();
-      
-      if (data.success) {
-        localStorage.setItem('git_committer_token', data.token);
-        setToken(data.token);
-        setIsPasswordSet(true);
-        setIsLoggedIn(true);
-        addLog('Dashboard secured with password.', 'success');
+      if (data.success && data.repos) {
+        setUserRepos(data.repos);
+        showToast(`Loaded ${data.repos.length} GitHub repositories.`);
       } else {
-        setAuthError(data.error || 'Failed to setup password.');
+        showToast(data.error || 'Failed to fetch repositories.');
       }
     } catch (err) {
-      setAuthError('Server connection failed.');
+      showToast('Error: ' + err.message);
+    } finally {
+      setLoadingRepos(false);
     }
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setAuthError('');
+  // --- Manual / Instant Commit Trigger ---
+  const handleExecuteManualCommit = async (e) => {
+    if (e) e.preventDefault();
+    setCommitting(true);
+    showToast('Executing automated Git commit...');
+    addLog(`Initiating commit sequence (count: ${manualCount})...`, 'info');
 
     try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
+      const res = await authFetch(`${API_BASE}/commit-now`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: authPassword })
+        body: JSON.stringify({
+          count: manualCount,
+          date: manualDate,
+          phrase: manualPhraseInput.trim() || undefined
+        })
       });
       const data = await res.json();
-
       if (data.success) {
-        localStorage.setItem('git_committer_token', data.token);
-        setToken(data.token);
-        setIsLoggedIn(true);
-        addLog('Successfully authenticated.', 'success');
+        showToast(`Successfully created ${data.commits?.length || 1} commit(s)!`);
+        addLog(`Registered ${data.commits?.length || 1} commit(s) to git log.`, 'success');
+        setShowManualCommitModal(false);
+        setManualPhraseInput('');
+        fetchData(false);
       } else {
-        setAuthError(data.error || 'Invalid credentials.');
+        showToast(`Commit error: ${data.error || 'Check repository'}`);
+        addLog(`Commit issue: ${data.error}`, 'error');
       }
     } catch (err) {
-      setAuthError('Server connection failed.');
+      showToast('Error: ' + err.message);
+      addLog(`Commit failed: ${err.message}`, 'error');
+    } finally {
+      setCommitting(false);
     }
   };
 
-  const handleGitHubLogin = () => {
-    if (!config.githubClientId) {
-      setAuthError('GitHub login is not configured by the administrator.');
-      return;
+  // --- Force Scheduler Trigger Script ---
+  const handleTriggerSchedulerScript = async () => {
+    setTriggeringScheduler(true);
+    showToast('Triggering scheduler script execution...');
+    addLog('Executing node backend/scheduler.js...', 'info');
+
+    try {
+      const res = await authFetch(`${API_BASE}/scheduler/trigger`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Scheduler script executed successfully!');
+        addLog(`Scheduler output: ${data.output ? data.output.substring(0, 100) : 'Done'}`, 'success');
+        fetchData(false);
+      } else {
+        showToast(`Scheduler warning: ${data.error || 'Execution check needed'}`);
+        addLog(`Scheduler error: ${data.error}`, 'error');
+      }
+    } catch (err) {
+      showToast('Error: ' + err.message);
+      addLog(`Scheduler trigger failed: ${err.message}`, 'error');
+    } finally {
+      setTriggeringScheduler(false);
     }
-    setOauthLoading(true);
-    // Request full repo access scope to allow cloning and pushing
-    window.location.href = `https://github.com/login/oauth/authorize?client_id=${config.githubClientId}&scope=repo`;
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('git_committer_token');
-    setToken('');
-    setIsLoggedIn(false);
-    addLog('Session cleared.', 'info');
-  };
-
-  const handleConfigChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setConfig(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-  };
-
+  // --- Save Config Modal ---
   const handleSaveConfig = async (e) => {
     e.preventDefault();
-    setSaving(true);
-    addLog('Saving configurations...', 'info');
-
     try {
       const res = await authFetch(`${API_BASE}/config`, {
         method: 'POST',
@@ -329,28 +352,27 @@ function App() {
       });
       const data = await res.json();
       if (data.success) {
-        setConfig(data.config);
-        addLog('Configuration saved successfully.', 'success');
+        showToast('Settings saved successfully!');
+        addLog('Engine parameters updated.', 'success');
         if (data.schedulerMessage) {
           addLog(data.schedulerMessage, 'info');
         }
+        setShowSettingsModal(false);
+        setShowAiModal(false);
+        fetchData(false);
       } else {
-        addLog(`Failed to save config: ${data.error || 'Unknown error'}`, 'error');
+        showToast(data.error || 'Save failed');
       }
     } catch (err) {
-      addLog(`Failed to save config: ${err.message}`, 'error');
-    } finally {
-      setSaving(false);
+      showToast('Error: ' + err.message);
     }
   };
 
-  const handleAddPhrase = async (e) => {
+  // --- Phrases Management ---
+  const handleAddCustomPhrase = async (e) => {
     e.preventDefault();
-    if (!newPhrase.trim()) return;
-
-    addLog(`Adding custom phrase: "${newPhrase}"`, 'info');
-    const updatedCustom = [...phrases.customPhrases, newPhrase.trim()];
-
+    if (!newCustomPhrase.trim()) return;
+    const updatedCustom = [...(phrases.customPhrases || []), newCustomPhrase.trim()];
     try {
       const res = await authFetch(`${API_BASE}/phrases`, {
         method: 'POST',
@@ -361,19 +383,17 @@ function App() {
       });
       const data = await res.json();
       if (data.success) {
-        setPhrases(prev => ({ ...prev, customPhrases: data.customPhrases }));
-        setNewPhrase('');
-        addLog('Custom phrase added.', 'success');
+        setPhrases(prev => ({ ...prev, customPhrases: updatedCustom }));
+        setNewCustomPhrase('');
+        showToast('Custom excuse phrase added!');
       }
     } catch (err) {
-      addLog(`Failed to add phrase: ${err.message}`, 'error');
+      showToast('Failed to add phrase: ' + err.message);
     }
   };
 
-  const handleDeletePhrase = async (phraseToDelete) => {
-    addLog(`Removing phrase: "${phraseToDelete}"`, 'info');
-    const updatedCustom = phrases.customPhrases.filter(p => p !== phraseToDelete);
-
+  const handleDeleteCustomPhrase = async (indexToDelete) => {
+    const updatedCustom = phrases.customPhrases.filter((_, i) => i !== indexToDelete);
     try {
       const res = await authFetch(`${API_BASE}/phrases`, {
         method: 'POST',
@@ -384,872 +404,1217 @@ function App() {
       });
       const data = await res.json();
       if (data.success) {
-        setPhrases(prev => ({ ...prev, customPhrases: data.customPhrases }));
-        addLog('Custom phrase removed.', 'success');
+        setPhrases(prev => ({ ...prev, customPhrases: updatedCustom }));
+        showToast('Phrase removed.');
       }
     } catch (err) {
-      addLog(`Failed to remove phrase: ${err.message}`, 'error');
+      showToast('Failed to delete phrase: ' + err.message);
     }
   };
 
-  const handleTogglePresets = async (checked) => {
+  const handleTogglePresets = async (enabled) => {
     try {
       const res = await authFetch(`${API_BASE}/phrases`, {
         method: 'POST',
         body: JSON.stringify({
-          usePresetPhrases: checked,
+          usePresetPhrases: enabled,
           customPhrases: phrases.customPhrases
         })
       });
       const data = await res.json();
       if (data.success) {
-        setPhrases(prev => ({ ...prev, usePresetPhrases: data.usePresetPhrases }));
-        addLog(`Preset phrases toggled: ${checked ? 'ON' : 'OFF'}`, 'success');
+        setPhrases(prev => ({ ...prev, usePresetPhrases: enabled }));
+        showToast(enabled ? 'Preset excuses enabled' : 'Preset excuses disabled');
       }
     } catch (err) {
-      addLog(`Failed to toggle presets: ${err.message}`, 'error');
+      showToast('Failed to toggle: ' + err.message);
     }
   };
 
-  const handleManualCommit = async (e) => {
-    e.preventDefault();
-    setCommitting(true);
-    
-    const phraseToUse = manualPhrase || selectedPresetPhrase;
-    
-    if (phraseToUse) {
-      addLog(`Triggering manual commit: "${phraseToUse}"...`, 'info');
-    } else {
-      addLog(`Triggering manual batch of ${manualCount} commits...`, 'info');
-    }
-
-    try {
-      const res = await authFetch(`${API_BASE}/commit-now`, {
-        method: 'POST',
-        body: JSON.stringify({
-          phrase: phraseToUse || undefined,
-          date: manualDate ? new Date(manualDate).toISOString() : undefined,
-          count: phraseToUse ? undefined : manualCount
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        addLog(`Created ${data.commits.length} commits successfully!`, 'success');
-        data.commits.forEach(c => {
-          addLog(`[${c.hash}] ${c.phrase} (AI: ${c.isLLM ? 'YES' : 'NO'}) at ${new Date(c.date).toLocaleTimeString()}`, 'success');
-        });
-        setManualPhrase('');
-        setSelectedPresetPhrase('');
-        fetchData(false);
-      } else {
-        addLog(`Commit failed: ${data.error}`, 'error');
-      }
-    } catch (err) {
-      addLog(`Request failed: ${err.message}`, 'error');
-    } finally {
-      setCommitting(false);
-    }
-  };
-
-  const handleRunScheduler = async () => {
-    setTriggeringScheduler(true);
-    addLog('Executing background scheduler runner manually...', 'info');
-
-    try {
-      const res = await authFetch(`${API_BASE}/scheduler/trigger`, { method: 'POST' });
-      const data = await res.json();
-      
-      if (data.success) {
-        addLog('Scheduler execution finished.', 'success');
-        if (data.output) {
-          const lines = data.output.split('\n');
-          lines.forEach(line => {
-            if (line.trim()) addLog(`[Scheduler Process] ${line.trim()}`, 'info');
-          });
-        }
-        fetchData(false);
-      } else {
-        addLog(`Scheduler failed: ${data.error}`, 'error');
-        if (data.output) {
-          addLog(`Scheduler stderr: ${data.output}`, 'error');
-        }
-      }
-    } catch (err) {
-      addLog(`API request failed: ${err.message}`, 'error');
-    } finally {
-      setTriggeringScheduler(false);
-    }
-  };
-
-  // Helper: map commit count to grid colors
-  const getContributionColor = (count) => {
-    if (count === 0) return 'var(--grid-0)';
-    if (count <= 2) return 'var(--grid-1)';
-    if (count <= 5) return 'var(--grid-2)';
-    if (count <= 9) return 'var(--grid-3)';
-    return 'var(--grid-4)';
-  };
-
-  // Build GitHub contribution grid
-  const getGridWeeks = () => {
-    const counts = {};
+  // --- 365-Day Contribution Heatmap Data Calculations ---
+  const heatmapData = useMemo(() => {
+    const countsByDate = {};
     gitCommits.forEach(c => {
-      if (c.date) {
-        const dStr = c.date.split('T')[0].split(' ')[0];
-        counts[dStr] = (counts[dStr] || 0) + 1;
-      }
+      const d = c.date ? c.date.split('T')[0].split(' ')[0] : '';
+      if (d) countsByDate[d] = (countsByDate[d] || 0) + 1;
     });
 
-    const today = new Date();
-    const days = [];
-    const startDate = new Date(today);
-    startDate.setDate(today.getDate() - 364);
+    const totalDays = 7 * 22; // 154 days representation in grid (7 rows x 22 cols)
+    const now = new Date();
+    const cells = [];
+    const countsList = [];
 
-    const dayOfWeek = startDate.getDay();
-    startDate.setDate(startDate.getDate() - dayOfWeek);
+    for (let i = totalDays - 1; i >= 0; i--) {
+      const dayDate = new Date(now);
+      dayDate.setDate(now.getDate() - i);
+      const iso = dayDate.toISOString().split('T')[0];
+      const count = countsByDate[iso] || 0;
+      if (count > 0) countsList.push(count);
 
-    let temp = new Date(startDate);
-    for (let i = 0; i < 371; i++) {
-      const dStr = temp.toISOString().split('T')[0];
-      days.push({
-        date: dStr,
-        count: counts[dStr] || 0,
-        dayOfWeek: temp.getDay(),
-        month: temp.getMonth(),
-        dateObj: new Date(temp)
+      let level = 0;
+      if (count > 0) {
+        if (count >= 5) level = 4;
+        else if (count >= 3) level = 3;
+        else if (count >= 2) level = 2;
+        else level = 1;
+      }
+
+      cells.push({
+        id: iso,
+        date: iso,
+        level,
+        count
       });
-      temp.setDate(temp.getDate() + 1);
     }
 
-    const weeks = [];
-    for (let i = 0; i < days.length; i += 7) {
-      weeks.push(days.slice(i, i + 7));
+    const minVal = countsList.length > 0 ? Math.min(...countsList) : 1;
+    const maxVal = countsList.length > 0 ? Math.max(...countsList) : (config.maxCommits || 15);
+    const avgVal = countsList.length > 0
+      ? Math.round(countsList.reduce((a, b) => a + b, 0) / countsList.length)
+      : Math.round(((config.minCommits || 1) + (config.maxCommits || 15)) / 2);
+
+    return { cells, minVal, maxVal, avgVal };
+  }, [gitCommits, config.minCommits, config.maxCommits]);
+
+  const latestCommit = gitCommits[0];
+
+  // Filtered commits for the activity table
+  const filteredCommits = useMemo(() => {
+    if (activeFilter === 'feat') {
+      return gitCommits.filter(c => c.message.toLowerCase().includes('feat') || c.message.toLowerCase().includes('add') || c.message.toLowerCase().includes('implement'));
     }
-    return weeks;
-  };
+    if (activeFilter === 'fix') {
+      return gitCommits.filter(c => c.message.toLowerCase().includes('fix') || c.message.toLowerCase().includes('bug') || c.message.toLowerCase().includes('patch'));
+    }
+    if (activeFilter === 'excuses') {
+      return gitCommits.filter(c => !c.message.toLowerCase().includes('feat') && !c.message.toLowerCase().includes('fix'));
+    }
+    return gitCommits;
+  }, [gitCommits, activeFilter]);
 
-  const weeks = getGridWeeks();
+  // Counts for filter pills
+  const featCount = useMemo(() => gitCommits.filter(c => c.message.toLowerCase().includes('feat') || c.message.toLowerCase().includes('add') || c.message.toLowerCase().includes('implement')).length, [gitCommits]);
+  const fixCount = useMemo(() => gitCommits.filter(c => c.message.toLowerCase().includes('fix') || c.message.toLowerCase().includes('bug') || c.message.toLowerCase().includes('patch')).length, [gitCommits]);
+  const excuseCount = useMemo(() => gitCommits.length - featCount - fixCount, [gitCommits, featCount, fixCount]);
 
-  const getMonthLabels = () => {
-    const labels = [];
-    let prevMonth = -1;
-    
-    weeks.forEach((week, index) => {
-      const firstDay = week[0];
-      if (firstDay.month !== prevMonth) {
-        labels.push({
-          index,
-          name: monthNames[firstDay.month]
-        });
-        prevMonth = firstDay.month;
-      }
-    });
-    
-    return labels;
-  };
-
-  const monthLabels = getMonthLabels();
-
-  // --- Auth Views ---
-  
+  // ========================================================
+  // 1. AUTH / LOGIN VIEW (STRICT CLEAN IMPLEMENTATION)
+  // ========================================================
   if (checkingAuth || oauthLoading) {
     return (
-      <div style={{ display: 'flex', height: '100vh', justifyContent: 'center', alignItems: 'center', background: 'var(--bg-primary)' }}>
-        <div style={{ color: 'var(--color-cyan)', fontFamily: 'var(--font-display)', fontSize: '1.25rem' }}>
-          {oauthLoading ? 'Authenticating with GitHub...' : 'Verifying Credentials...'}
-        </div>
+      <div style={{ display: 'flex', height: '100vh', justifyContent: 'center', alignItems: 'center', color: '#f2795a', fontFamily: 'var(--font-sans)', fontSize: '1.25rem', fontWeight: '700' }}>
+        {oauthLoading ? 'Authenticating with GitHub...' : 'Connecting to GitGlobal Services...'}
       </div>
     );
   }
 
   if (!isLoggedIn) {
     return (
-      <div style={{ display: 'flex', minHeight: '100vh', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
-        <div className="glass-panel" style={{ width: '100%', maxWidth: '400px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-            <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: '800', background: 'linear-gradient(to right, #fff, var(--color-cyan))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-cyan)" strokeWidth="2.5">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      <div className="auth-page-wrapper">
+        <div className="auth-container">
+          {/* Left Pane: Forest Green Mesh Aura */}
+          <div className="auth-hero-pane">
+            <div className="hero-top-brand">
+              <svg className="brand-icon-green" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                <circle cx="12" cy="18" r="3"></circle>
+                <circle cx="6" cy="6" r="3"></circle>
+                <circle cx="18" cy="6" r="3"></circle>
+                <path d="M18 9v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"></path>
+                <path d="M12 12v3"></path>
               </svg>
-              Auto-Committer
-            </h1>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
-              {!isPasswordSet ? 'Set up password to secure your local dashboard' : 'Enter your password to access the panel'}
-            </p>
-          </div>
-          
-          <form onSubmit={!isPasswordSet ? handleSetupPassword : handleLogin}>
-            {authError && (
-              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--color-red)', borderRadius: '6px', color: 'var(--color-red)', padding: '10px', fontSize: '0.85rem', marginBottom: '16px' }}>
-                {authError}
-              </div>
-            )}
-            
-            <div className="input-group">
-              <label htmlFor="authPass">Password</label>
-              <input
-                id="authPass"
-                type="password"
-                className="input-text"
-                placeholder="Enter password..."
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                required
-              />
+              <span>GitGlobal</span>
             </div>
 
-            {!isPasswordSet && (
-              <div className="input-group">
-                <label htmlFor="authConfirmPass">Confirm Password</label>
-                <input
-                  id="authConfirmPass"
-                  type="password"
-                  className="input-text"
-                  placeholder="Repeat password..."
-                  value={authConfirmPassword}
-                  onChange={(e) => setAuthConfirmPassword(e.target.value)}
-                  required
-                />
+            <div className="hero-content">
+              <div>
+                <h1 className="hero-heading">Get Started<br />with Us</h1>
+                <p className="hero-subtext">Complete these steps to secure your instance and automate your daily Git contributions.</p>
               </div>
-            )}
 
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '8px' }}>
-              {!isPasswordSet ? 'Secure Dashboard' : 'Unlock Dashboard'}
-            </button>
-            
-            {/* GitHub OAuth Login Option */}
-            {isPasswordSet && config.githubClientId && (
-              <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '20px', textAlign: 'center' }}>
-                <button type="button" onClick={handleGitHubLogin} className="btn btn-secondary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              {/* 3 Step Cards Row */}
+              <div className="hero-steps-row">
+                <div className={`step-card ${activeAuthStep === 1 ? 'active' : ''}`} onClick={() => setActiveAuthStep(1)}>
+                  <div className={`step-badge ${activeAuthStep === 1 ? 'dark' : 'muted'}`}>1</div>
+                  <span className="step-text">Master Password</span>
+                </div>
+
+                <div className={`step-card ${activeAuthStep === 2 ? 'active' : ''}`} onClick={() => setActiveAuthStep(2)}>
+                  <div className={`step-badge ${activeAuthStep === 2 ? 'dark' : 'muted'}`}>2</div>
+                  <span className="step-text">Connect GitHub</span>
+                </div>
+
+                <div className={`step-card ${activeAuthStep === 3 ? 'active' : ''}`} onClick={() => setActiveAuthStep(3)}>
+                  <div className={`step-badge ${activeAuthStep === 3 ? 'dark' : 'muted'}`}>3</div>
+                  <span className="step-text">Schedule Engine</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Pane: Dark Auth Form */}
+          <div className="auth-form-pane">
+            <div className="form-wrapper">
+              <div className="form-header">
+                <h2 className="form-title">{isPasswordSet ? 'Welcome Back' : 'Master Password Setup'}</h2>
+                <p className="form-subtitle">
+                  {isPasswordSet
+                    ? 'Enter your master password to access your Git synchronization hub.'
+                    : 'Configure a master password to secure your local auto-committer instance.'}
+                </p>
+              </div>
+
+              {/* GitHub OAuth Button */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                <button
+                  type="button"
+                  className="btn-social"
+                  style={{ width: '100%' }}
+                  onClick={handleGitHubAuthClick}
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
                   </svg>
-                  Sign in with GitHub
+                  <span>Sign in with GitHub</span>
                 </button>
               </div>
-            )}
-          </form>
+
+              <div className="form-divider">
+                <span>Or unlock with password</span>
+              </div>
+
+              {authError && (
+                <div style={{ color: '#f87171', fontSize: '0.78rem', background: 'rgba(248, 113, 113, 0.1)', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(248, 113, 113, 0.3)' }}>
+                  {authError}
+                </div>
+              )}
+
+              <form onSubmit={handleAuthSubmit} className="auth-form-fields">
+                <div className="input-group">
+                  <label>{isPasswordSet ? 'Master Password' : 'Create Master Password'}</label>
+                  <div className="password-input-wrapper">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Enter your secure password"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className="eye-toggle-btn"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                        {showPassword ? (
+                          <>
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                            <line x1="1" y1="1" x2="23" y2="23"></line>
+                          </>
+                        ) : (
+                          <>
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                          </>
+                        )}
+                      </svg>
+                    </button>
+                  </div>
+                  <span className="field-hint">Must be at least 6 characters</span>
+                </div>
+
+                {!isPasswordSet && (
+                  <div className="input-group">
+                    <label>Confirm Master Password</label>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Re-enter password to confirm"
+                      value={authConfirmPassword}
+                      onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                      required
+                      minLength={6}
+                    />
+                  </div>
+                )}
+
+                <button type="submit" className="btn-primary-auth">
+                  {isPasswordSet ? 'Unlock Dashboard' : 'Save Password & Enter'}
+                </button>
+              </form>
+
+              <div className="auth-footer-text">
+                <span>Auto-Committer Engine</span>
+                <span style={{ color: '#4ade80' }}>● Local Secure Node</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
+  // ========================================================
+  // 2. MAIN DASHBOARD VIEW (AUTHENTIC TRANSGLOBAL UI)
+  // ========================================================
   return (
-    <div className="app-container">
-      <header>
-        <div className="logo">
-          <h1>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-cyan)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-            </svg>
-            Git Auto-Committer
-          </h1>
-          <p>Automate daily commits with natural, randomized schedules and coding logs.</p>
+    <div className="dashboard-window">
+      {/* 1. Top Navbar */}
+      <nav className="top-nav">
+        <div className="brand-group">
+          <svg className="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+            <circle cx="12" cy="18" r="3"></circle>
+            <circle cx="6" cy="6" r="3"></circle>
+            <circle cx="18" cy="6" r="3"></circle>
+            <path d="M18 9v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"></path>
+            <path d="M12 12v3"></path>
+          </svg>
+          <span className="brand-name">GitGlobal</span>
         </div>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <span className={`status-badge ${config.enabled ? 'active' : 'inactive'}`}>
-            Scheduler: {config.enabled ? 'Enabled' : 'Disabled'}
-          </span>
-          {config.schedulerRegistered ? (
-            <span className="status-badge active" style={{ background: 'rgba(99, 102, 241, 0.1)', color: 'var(--color-indigo)', borderColor: 'rgba(99, 102, 241, 0.3)' }}>
-              Windows Task: Active
-            </span>
-          ) : (
-            <span className="status-badge inactive">
-              Windows Task: Missing
-            </span>
-          )}
-          <button onClick={handleLogout} className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
-            Lock
+
+        <div className="nav-capsule">
+          <button className="nav-pill active">
+            <span className="active-orange-dot"></span>
+            Auto-Committer
+          </button>
+          <button className="nav-pill" onClick={() => setShowPhrasesModal(true)}>
+            Phrases Bank ({phrases.presets?.length || 50}+)
+          </button>
+          <button className="nav-pill" onClick={() => setShowSettingsModal(true)}>
+            Scheduler & Repo
+          </button>
+          <button className="nav-pill" onClick={() => setShowAiModal(true)}>
+            AI Generator {config.llmProvider !== 'none' ? '●' : ''}
+          </button>
+          <button className="nav-pill" onClick={() => setShowTerminalOverlay(!showTerminalOverlay)}>
+            Sync Logs ({logs.length})
           </button>
         </div>
-      </header>
 
-      {/* Hero Stats */}
-      <div className="stats-grid">
-        <div className="glass-panel stat-card">
-          <h3>Total Commits</h3>
-          <div className="value">{gitCommits.length}</div>
-        </div>
-        <div className="glass-panel stat-card">
-          <h3>Daily Target</h3>
-          <div className="value">
-            {config.minCommits} - {config.maxCommits}
-          </div>
-        </div>
-        <div className="glass-panel stat-card">
-          <h3>Commit Time window</h3>
-          <div className="value">
-            {String(config.startHour).padStart(2, '0')}:00 - {String(config.endHour).padStart(2, '0')}:00
-          </div>
-        </div>
-        <div className="glass-panel stat-card">
-          <h3>Repository Setup</h3>
-          <div className="value" style={{ fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-cyan)', marginTop: '8px' }} title={config.githubRepoName || 'Not Connected'}>
-            {config.githubRepoName || 'Not Connected'}
-          </div>
-        </div>
-      </div>
-
-      {/* Contribution Heat Map */}
-      <div className="glass-panel map-card">
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem', marginBottom: '16px', color: '#fff' }}>Contribution Calendar</h2>
-        <div className="contribution-grid-container">
-          <div style={{ display: 'flex' }}>
-            <div className="days-labels">
-              <span>Sun</span>
-              <span>Tue</span>
-              <span>Thu</span>
-              <span>Sat</span>
+        <div className="nav-right-group">
+          <button className="nav-icon-circle" title="Instant Manual Commit" onClick={() => handleExecuteManualCommit()}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </button>
+          <button className="nav-icon-circle has-notify" title="Refresh Git History" onClick={() => fetchData(true)}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+            </svg>
+            <span className="notify-dot"></span>
+          </button>
+          <div className="user-profile-pill" onClick={handleLogout} title="Click to lock session">
+            <img className="user-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" alt="Avatar" />
+            <div className="user-meta">
+              <span className="user-name">{config.githubAllowedUser || 'Sachindrapandeyyy'}</span>
+              <span className="user-role">Lock Session</span>
             </div>
-            <div>
-              {/* Month Titles */}
-              <div style={{ position: 'relative', height: '20px', marginLeft: '12px' }}>
-                {monthLabels.map(l => (
-                  <span key={l.index} style={{ position: 'absolute', left: `${l.index * 13}px`, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {l.name}
-                  </span>
-                ))}
-              </div>
-              
-              {/* Heat Map Grid */}
-              <div className="grid-cols" style={{ marginLeft: '12px' }}>
-                {weeks.map((week, wIdx) => (
-                  <div key={wIdx} className="grid-col-week">
-                    {week.map((day, dIdx) => (
-                      <div
-                        key={dIdx}
-                        className="grid-square tooltip-container"
-                        style={{ backgroundColor: getContributionColor(day.count) }}
-                        onMouseEnter={() => setHoveredDay(day)}
-                        onMouseLeave={() => setHoveredDay(null)}
-                      >
-                        {hoveredDay && hoveredDay.date === day.date && (
-                          <div className="tooltip-box">
-                            {day.count} commit{day.count !== 1 ? 's' : ''} on {new Date(day.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ))}
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" className="chevron-down">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+        </div>
+      </nav>
+
+      {/* 2. Hero Header & 3 Metric Cards */}
+      <section className="hero-section">
+        <div className="hero-left">
+          <h1 className="hero-title">Automatic Git<br />Contributions</h1>
+        </div>
+
+        <div className="hero-metric-cards">
+          {/* Metric 1: Total Commits */}
+          <div className="metric-card">
+            <div className="metric-icon-box">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+              </svg>
+            </div>
+            <div className="metric-text-group">
+              <span className="metric-label">Total Commits</span>
+              <div className="metric-value-row">
+                <span className="metric-number">{gitCommits.length}</span>
+                <span className="trend-badge positive">origin/main ↗</span>
               </div>
             </div>
           </div>
-          
-          <div className="grid-legend">
-            <span>Less</span>
-            <div className="legend-square" style={{ backgroundColor: 'var(--grid-0)' }} />
-            <div className="legend-square" style={{ backgroundColor: 'var(--grid-1)' }} />
-            <div className="legend-square" style={{ backgroundColor: 'var(--grid-2)' }} />
-            <div className="legend-square" style={{ backgroundColor: 'var(--grid-3)' }} />
-            <div className="legend-square" style={{ backgroundColor: 'var(--grid-4)' }} />
-            <span>More</span>
-          </div>
-        </div>
-      </div>
 
-      <div className="dashboard-body">
-        {/* Left Column: Config & Manual Actions */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-          
-          {/* Configurations */}
-          <div className="glass-panel">
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem', marginBottom: '20px', color: '#fff', display: 'flex', justifyItems: 'center', gap: '8px' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          {/* Metric 2: Daily Target Range */}
+          <div className="metric-card">
+            <div className="metric-icon-box">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
               </svg>
-              Scheduler Settings
-            </h2>
-            <form onSubmit={handleSaveConfig}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                <div>
-                  <div style={{ fontWeight: '600', fontSize: '0.95rem' }}>Automated Daily Committer</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Toggle background scheduler service</div>
-                </div>
-                <label className="switch">
-                  <input
-                    type="checkbox"
-                    name="enabled"
-                    checked={config.enabled}
-                    onChange={handleConfigChange}
-                  />
-                  <span className="slider"></span>
-                </label>
-              </div>
-
-              {/* Vercel-like repo selector dropdown */}
-              <div className="input-group">
-                <label htmlFor="githubRepoName" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  Target GitHub Repository
-                  {config.githubUserToken && (
-                    <button 
-                      type="button" 
-                      onClick={fetchGithubRepos} 
-                      disabled={fetchingRepos}
-                      style={{ background: 'none', border: 'none', color: 'var(--color-cyan)', cursor: 'pointer', fontSize: '0.75rem', padding: '0', textDecoration: 'underline' }}
-                    >
-                      {fetchingRepos ? 'Loading...' : 'Refresh List'}
-                    </button>
-                  )}
-                </label>
-                {!config.githubUserToken ? (
-                  <div style={{ padding: '10px', background: 'rgba(255, 255, 255, 0.02)', border: '1px dashed var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
-                    Login via GitHub to select a repository.
-                  </div>
-                ) : githubRepos.length === 0 ? (
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <input
-                      type="text"
-                      className="input-text"
-                      placeholder="Loading repositories..."
-                      value={config.githubRepoName}
-                      readOnly
-                    />
-                  </div>
-                ) : (
-                  <select
-                    id="githubRepoName"
-                    name="githubRepoName"
-                    className="input-select"
-                    value={config.githubRepoName}
-                    onChange={(e) => {
-                      const selectedRepo = githubRepos.find(r => r.fullName === e.target.value);
-                      setConfig(prev => ({
-                        ...prev,
-                        githubRepoName: e.target.value,
-                        githubRepoCloneUrl: selectedRepo ? selectedRepo.cloneUrl : ''
-                      }));
-                    }}
-                    required
-                  >
-                    <option value="">-- Choose Repository --</option>
-                    {githubRepos.map(r => (
-                      <option key={r.fullName} value={r.fullName}>{r.fullName}</option>
-                    ))}
-                  </select>
-                )}
-                {config.githubRepoName && config.repoPath && (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginTop: '6px', wordBreak: 'break-all' }}>
-                    <strong>Local Workspace:</strong> {config.repoPath}
-                  </span>
-                )}
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div className="input-group">
-                  <label htmlFor="minCommits">Min Commits / Day</label>
-                  <input
-                    id="minCommits"
-                    type="number"
-                    name="minCommits"
-                    className="input-text"
-                    min="0"
-                    max="50"
-                    value={config.minCommits}
-                    onChange={handleConfigChange}
-                  />
-                </div>
-                <div className="input-group">
-                  <label htmlFor="maxCommits">Max Commits / Day</label>
-                  <input
-                    id="maxCommits"
-                    type="number"
-                    name="maxCommits"
-                    className="input-text"
-                    min="1"
-                    max="50"
-                    value={config.maxCommits}
-                    onChange={handleConfigChange}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div className="input-group">
-                  <label htmlFor="startHour">Working Hours Start</label>
-                  <select
-                    id="startHour"
-                    name="startHour"
-                    className="input-select"
-                    value={config.startHour}
-                    onChange={handleConfigChange}
-                  >
-                    {[...Array(24).keys()].map(h => (
-                      <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="input-group">
-                  <label htmlFor="endHour">Working Hours End</label>
-                  <select
-                    id="endHour"
-                    name="endHour"
-                    className="input-select"
-                    value={config.endHour}
-                    onChange={handleConfigChange}
-                  >
-                    {[...Array(24).keys()].map(h => (
-                      <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* BYOK LLM Settings Section */}
-              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px', marginTop: '20px' }}>
-                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.05rem', marginBottom: '14px', color: 'var(--color-cyan)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-                  </svg>
-                  BYOK AI Code Generation (Optional)
-                </h3>
-                
-                <div className="input-group">
-                  <label htmlFor="llmProvider">AI Provider</label>
-                  <select
-                    id="llmProvider"
-                    name="llmProvider"
-                    className="input-select"
-                    value={config.llmProvider}
-                    onChange={handleConfigChange}
-                  >
-                    <option value="none">None (Use default preset phrases)</option>
-                    <option value="openai">OpenAI (GPT Models)</option>
-                    <option value="anthropic">Anthropic (Claude Models)</option>
-                  </select>
-                </div>
-
-                {config.llmProvider !== 'none' && (
-                  <>
-                    <div className="input-group">
-                      <label htmlFor="llmApiKey">API Key</label>
-                      <input
-                        id="llmApiKey"
-                        type="password"
-                        name="llmApiKey"
-                        className="input-text"
-                        placeholder="Paste api key..."
-                        value={config.llmApiKey}
-                        onChange={handleConfigChange}
-                      />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
-                      <div className="input-group">
-                        <label htmlFor="llmModel">Model Name</label>
-                        <input
-                          id="llmModel"
-                          type="text"
-                          name="llmModel"
-                          className="input-text"
-                          placeholder={config.llmProvider === 'openai' ? 'gpt-4o-mini' : 'claude-3-5-sonnet-20240620'}
-                          value={config.llmModel}
-                          onChange={handleConfigChange}
-                        />
-                      </div>
-                      <div className="input-group">
-                        <label htmlFor="llmLanguage">Target Language</label>
-                        <select
-                          id="llmLanguage"
-                          name="llmLanguage"
-                          className="input-select"
-                          value={config.llmLanguage}
-                          onChange={handleConfigChange}
-                        >
-                          <option value="JavaScript">JavaScript</option>
-                          <option value="Python">Python</option>
-                          <option value="HTML">HTML</option>
-                          <option value="CSS">CSS</option>
-                          <option value="Markdown">Markdown</option>
-                        </select>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* GitHub OAuth Settings Section */}
-              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px', marginTop: '20px' }}>
-                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.05rem', marginBottom: '14px', color: 'var(--color-indigo)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                  </svg>
-                  GitHub Social Authentication (SaaS Setup)
-                </h3>
-                
-                <div className="input-group">
-                  <label htmlFor="githubClientId">OAuth Client ID</label>
-                  <input
-                    id="githubClientId"
-                    type="text"
-                    name="githubClientId"
-                    className="input-text"
-                    placeholder="Enter client id..."
-                    value={config.githubClientId}
-                    onChange={handleConfigChange}
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label htmlFor="githubClientSecret">OAuth Client Secret</label>
-                  <input
-                    id="githubClientSecret"
-                    type="password"
-                    name="githubClientSecret"
-                    className="input-text"
-                    placeholder="Enter client secret..."
-                    value={config.githubClientSecret}
-                    onChange={handleConfigChange}
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label htmlFor="githubAllowedUser">Allowed Username (Admin Owner)</label>
-                  <input
-                    id="githubAllowedUser"
-                    type="text"
-                    name="githubAllowedUser"
-                    className="input-text"
-                    placeholder="Sachindrapandeyyy"
-                    value={config.githubAllowedUser}
-                    onChange={handleConfigChange}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
-                <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={saving}>
-                  {saving ? 'Saving...' : 'Save Configuration'}
-                </button>
-                <button type="button" className="btn btn-secondary" onClick={handleRunScheduler} disabled={triggeringScheduler} title="Test executes scheduler immediately">
-                  {triggeringScheduler ? 'Running...' : 'Run Task Now'}
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* Quick manual actions */}
-          <div className="glass-panel">
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem', marginBottom: '20px', color: '#fff', display: 'flex', justifyItems: 'center', gap: '8px' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                <polyline points="22 4 12 14.01 9 11.01"/>
-              </svg>
-              Manual Commit Trigger
-            </h2>
-            <form onSubmit={handleManualCommit}>
-              <div className="input-group">
-                <label>Mode</label>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="manualMode"
-                      checked={!manualPhrase && !selectedPresetPhrase}
-                      onChange={() => { setManualPhrase(''); setSelectedPresetPhrase(''); }}
-                    />
-                    Random Phrase Batch
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="manualMode"
-                      checked={!!manualPhrase || !!selectedPresetPhrase}
-                      onChange={() => setSelectedPresetPhrase(phrases.presets[0] || '')}
-                    />
-                    Specific Phrase
-                  </label>
-                </div>
-              </div>
-
-              {(!manualPhrase && !selectedPresetPhrase) ? (
-                <div className="input-group">
-                  <label htmlFor="manualCount">Number of Commits to Generate</label>
-                  <input
-                    id="manualCount"
-                    type="number"
-                    className="input-text"
-                    min="1"
-                    max="30"
-                    value={manualCount}
-                    onChange={(e) => setManualCount(parseInt(e.target.value))}
-                  />
-                </div>
-              ) : (
-                <div className="input-group">
-                  <label htmlFor="selectPreset">Choose Preset or Write Custom Message</label>
-                  <select
-                    id="selectPreset"
-                    className="input-select"
-                    value={selectedPresetPhrase}
-                    onChange={(e) => {
-                      setSelectedPresetPhrase(e.target.value);
-                      setManualPhrase('');
-                    }}
-                    style={{ marginBottom: '8px' }}
-                  >
-                    <option value="">-- Select Preset Excuses --</option>
-                    {phrases.presets.map((p, idx) => (
-                      <option key={idx} value={p}>{p}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    className="input-text"
-                    placeholder="Or type custom commit message..."
-                    value={manualPhrase}
-                    onChange={(e) => {
-                      setManualPhrase(e.target.value);
-                      setSelectedPresetPhrase('');
-                    }}
-                  />
-                </div>
-              )}
-
-              <div className="input-group">
-                <label htmlFor="manualDate">Commit Assign Date</label>
-                <input
-                  id="manualDate"
-                  type="date"
-                  className="input-text"
-                  value={manualDate}
-                  onChange={(e) => setManualDate(e.target.value)}
-                />
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
-                  Choose a date in the past to backfill contribution history.
+            </div>
+            <div className="metric-text-group">
+              <span className="metric-label">Daily Target</span>
+              <div className="metric-value-row">
+                <span className="metric-number" style={{ fontSize: '1.45rem' }}>
+                  {config.minCommits} - {config.maxCommits}
+                </span>
+                <span className={`trend-badge ${config.enabled ? 'positive' : 'negative'}`}>
+                  {config.enabled ? 'Active ↗' : 'Paused ↘'}
                 </span>
               </div>
-
-              <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={committing}>
-                {committing ? 'Committing...' : 'Commit Now'}
-              </button>
-            </form>
-          </div>
-        </div>
-
-        {/* Right Column: Terminal Console & Phrase Bank */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-          {/* Logs */}
-          <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem', marginBottom: '16px', color: '#fff', display: 'flex', justifyItems: 'center', gap: '8px' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="4 17 10 11 4 5"/>
-                <line x1="12" y1="19" x2="20" y2="19"/>
-              </svg>
-              Execution Console
-            </h2>
-            <div className="console-panel">
-              {logs.length === 0 ? (
-                <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Terminal idling. Awaiting operations...</div>
-              ) : (
-                logs.map((log, idx) => (
-                  <div key={idx} className="console-line">
-                    <span className="timestamp">[{log.timestamp}]</span>
-                    <span className={log.type}>{log.message}</span>
-                  </div>
-                ))
-              )}
-              <div ref={consoleEndRef} />
             </div>
           </div>
 
-          {/* Phrases Manager */}
-          <div className="glass-panel">
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem', marginBottom: '16px', color: '#fff', display: 'flex', justifyItems: 'center', gap: '8px' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          {/* Metric 3: Target Repository */}
+          <div className="metric-card" style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
+            <div className="metric-icon-box">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M1 3h15v13H1z"></path>
+                <path d="M16 8h4l3 3v5h-7V8z"></path>
+                <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                <circle cx="18.5" cy="18.5" r="2.5"></circle>
               </svg>
-              Commit Phrase Bank
-            </h2>
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)' }}>
-              <div>
-                <div style={{ fontSize: '0.9rem', fontWeight: '500' }}>Use Predefined Phrases</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Include 50+ developer phrases in commit pools</div>
+            </div>
+            <div className="metric-text-group">
+              <span className="metric-label">Target Repository</span>
+              <div className="metric-value-row">
+                <span
+                  className="metric-number"
+                  style={{ fontSize: '0.95rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }}
+                  title={config.githubRepoName || 'Local Workspace'}
+                >
+                  {config.githubRepoName ? config.githubRepoName.split('/').pop() : 'Workspace'}
+                </span>
+                <span className="trend-badge positive">synced ↗</span>
               </div>
-              <label className="switch">
-                <input
-                  type="checkbox"
-                  checked={phrases.usePresetPhrases}
-                  onChange={(e) => handleTogglePresets(e.target.checked)}
-                />
-                <span className="slider"></span>
-              </label>
-            </div>
-
-            <form onSubmit={handleAddPhrase} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-              <input
-                type="text"
-                className="input-text"
-                placeholder="Add custom commit phrase..."
-                value={newPhrase}
-                onChange={(e) => setNewPhrase(e.target.value)}
-              />
-              <button type="submit" className="btn btn-secondary" style={{ padding: '0 16px' }}>Add</button>
-            </form>
-
-            <div className="phrases-list">
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Custom Phrases ({phrases.customPhrases.length})</div>
-              {phrases.customPhrases.length === 0 ? (
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', padding: '8px' }}>No custom phrases added yet.</div>
-              ) : (
-                phrases.customPhrases.map((phrase, idx) => (
-                  <div key={idx} className="phrase-item">
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '8px' }} title={phrase}>
-                      {phrase}
-                    </span>
-                    <button type="button" onClick={() => handleDeletePhrase(phrase)} title="Delete custom phrase">&times;</button>
-                  </div>
-                ))
-              )}
             </div>
           </div>
         </div>
-      </div>
-      
-      {/* Recent Git Log Activity */}
-      <div className="glass-panel" style={{ marginTop: '30px' }}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem', marginBottom: '16px', color: '#fff', display: 'flex', justifyItems: 'center', gap: '8px' }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 20h9"/>
-            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-          </svg>
-          Recent Repository Log (Last 10 Commits)
-        </h2>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+      </section>
+
+      {/* 3. Action Context Bar */}
+      <section className="action-context-bar">
+        <div className="context-left">
+          <div className="repo-location-pill" onClick={() => setShowSettingsModal(true)}>
+            <div className="pin-icon-wrap">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                <circle cx="12" cy="10" r="3"></circle>
+              </svg>
+            </div>
+            <div className="repo-location-texts">
+              <span className="repo-title-text">{config.githubRepoName || 'Local Workspace'}</span>
+              <span className="repo-date-text">
+                Today • {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="context-right">
+          <div className="pending-warning">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#f2795a" strokeWidth="2">
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            <span>
+              {config.enabled
+                ? `Scheduler Active (${String(config.startHour).padStart(2, '0')}:00 - ${String(config.endHour).padStart(2, '0')}:00)`
+                : 'Scheduler Paused (Manual triggers active)'}
+            </span>
+          </div>
+
+          <button className="btn-pill-icon" onClick={() => setShowSettingsModal(true)} title="Engine Parameters">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="4" y1="21" x2="4" y2="14"></line>
+              <line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line>
+              <line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line>
+              <line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
+            </svg>
+          </button>
+
+          <button
+            className="btn-pill-secondary"
+            onClick={() => {
+              const text = `GitGlobal • Contribution Activity Report\nGenerated: ${new Date().toISOString()}\nTarget: ${config.githubRepoName || 'Local Workspace'}\nTotal Commits: ${gitCommits.length}\n\n` +
+                gitCommits.map(c => `[${c.hash}] ${c.message} (${c.date})`).join('\n');
+              const blob = new Blob([text], { type: 'text/plain' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `git-contributions-report-${Date.now()}.txt`;
+              a.click();
+              showToast('Commit activity report downloaded!');
+            }}
+          >
+            Download report
+          </button>
+
+          {/* Signature Coral Action Button */}
+          <button
+            className="btn-pill-coral"
+            onClick={() => setShowManualCommitModal(true)}
+            disabled={committing}
+          >
+            {committing ? 'Committing...' : '+ Trigger Commits'}
+          </button>
+        </div>
+      </section>
+
+      {/* 4. Middle Grid: Analytic View, Tracking History, Map Topology */}
+      <section className="middle-grid">
+        {/* Column 1: Contribution Analytics Heatmap Matrix */}
+        <div className="card-analytic-view">
+          <div className="card-header-row">
+            <h3 className="card-title">Contribution Analytics</h3>
+            <div className="timeframe-pills">
+              <button className={`tf-btn ${selectedTimeframe === 'day' ? 'active' : ''}`} onClick={() => setSelectedTimeframe('day')}>Day</button>
+              <button className={`tf-btn ${selectedTimeframe === 'week' ? 'active' : ''}`} onClick={() => setSelectedTimeframe('week')}>• Week</button>
+              <button className={`tf-btn ${selectedTimeframe === 'month' ? 'active' : ''}`} onClick={() => setSelectedTimeframe('month')}>Month</button>
+              <button className={`tf-btn ${selectedTimeframe === 'quarter' ? 'active' : ''}`} onClick={() => setSelectedTimeframe('quarter')}>Quarter</button>
+              <button className={`tf-btn ${selectedTimeframe === 'year' ? 'active' : ''}`} onClick={() => setSelectedTimeframe('year')}>Year</button>
+              <button className={`tf-btn ${selectedTimeframe === 'all' ? 'active' : ''}`} onClick={() => setSelectedTimeframe('all')}>All ↗</button>
+            </div>
+          </div>
+
+          <div className="analytic-numbers-row">
+            <div className="substat-col">
+              <div className="substat-val-row">
+                <span className="substat-val">{heatmapData.minVal}</span>
+                <span className="substat-arr">↗</span>
+              </div>
+              <span className="substat-lbl">Minimal number</span>
+            </div>
+            <div className="substat-col">
+              <div className="substat-val-row">
+                <span className="substat-val">{heatmapData.avgVal}</span>
+                <span className="substat-arr">↗</span>
+              </div>
+              <span className="substat-lbl">Average number</span>
+            </div>
+            <div className="substat-col">
+              <div className="substat-val-row">
+                <span className="substat-val">{heatmapData.maxVal}</span>
+                <span className="substat-arr">↗</span>
+              </div>
+              <span className="substat-lbl">Maximum number</span>
+            </div>
+          </div>
+
+          {/* Real Contribution Heatmap Matrix */}
+          <div className="heatmap-matrix-wrapper">
+            <div className="heatmap-day-labels">
+              <span>Mon</span>
+              <span>Tue</span>
+              <span>Wed</span>
+              <span>Thu</span>
+              <span>Fri</span>
+              <span>Sat</span>
+              <span>Sun</span>
+            </div>
+            <div className="heatmap-tiles-grid">
+              {heatmapData.cells.map((cell, idx) => (
+                <div
+                  key={idx}
+                  className={`heat-tile heat-level-${cell.level}`}
+                  title={`${cell.date}: ${cell.count} commit(s)`}
+                  onClick={() => {
+                    setManualDate(cell.date);
+                    setShowManualCommitModal(true);
+                    showToast(`Selected date: ${cell.date}`);
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Column 2: Tracking History Card */}
+        <div className="card-tracking-history">
+          <div className="card-header-row">
+            <h3 className="card-title">Tracking History</h3>
+            <button className="btn-dots-menu" onClick={() => setShowSettingsModal(true)}>•••</button>
+          </div>
+
+          <div className="tracking-id-row">
+            <div>
+              <span className="tracking-id-label">Tracking ID</span>
+              <h4 className="tracking-id-value">
+                {latestCommit ? `#${latestCommit.hash}-sync` : '#HEAD-initial'}
+              </h4>
+            </div>
+            <span className={`status-pill-transit ${config.enabled ? 'green' : ''}`}>
+              {config.enabled ? 'Active Sync' : 'Idle Mode'}
+            </span>
+          </div>
+
+          <div className="stepper-timeline">
+            <div className="timeline-step">
+              <div className="step-indicator green-dot"></div>
+              <div className="step-info">
+                <span className="step-title">Current Status</span>
+                <span className="step-detail">
+                  {config.enabled ? `Armed (${config.startHour}:00 - ${config.endHour}:00)` : 'Manual Execution Mode'}
+                </span>
+              </div>
+              <span className="step-time">Today</span>
+            </div>
+
+            <div className="timeline-step">
+              <div className="step-indicator muted-dot"></div>
+              <div className="step-info">
+                <span className="step-title">Last Commit Message</span>
+                <span className="step-detail" title={latestCommit ? latestCommit.message : 'Waiting for commit'}>
+                  {latestCommit ? (latestCommit.message.length > 26 ? latestCommit.message.substring(0, 26) + '...' : latestCommit.message) : 'Initial repository setup'}
+                </span>
+              </div>
+              <span className="step-time">{latestCommit ? latestCommit.date?.split(' ')[0] : 'Ready'}</span>
+            </div>
+
+            <div className="timeline-step">
+              <div className="step-indicator muted-dot"></div>
+              <div className="step-info">
+                <span className="step-title">Target Remote Waypoint</span>
+                <span className="step-detail">{config.githubRepoName || 'Local Workspace'}</span>
+              </div>
+              <span className="step-time">origin/main</span>
+            </div>
+          </div>
+
+          <div className="tracking-footer-meta">
+            <div className="meta-item">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="6" cy="19" r="3"></circle>
+                <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"></path>
+                <circle cx="18" cy="5" r="3"></circle>
+              </svg>
+              <div>
+                <span className="meta-label">Route</span>
+                <span className="meta-val">HEAD &rarr; origin/main</span>
+              </div>
+            </div>
+
+            <div className="meta-item">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              <div>
+                <span className="meta-label">Execution Mode</span>
+                <span className="meta-val">{config.enabled ? 'Automated Daily Window' : 'On Demand'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Column 3: Route Topology Canvas & Live Terminal */}
+        <div className="card-map-topology">
+          <div className="map-container">
+            <div className="map-bg-grid">
+              <svg className="map-svg" viewBox="0 0 340 190">
+                <circle cx="45" cy="45" r="2.5" fill="#444856"></circle>
+                <text x="50" y="48" fill="#585e72" fontSize="8">Local Worktree</text>
+
+                <circle cx="280" cy="50" r="2.5" fill="#444856"></circle>
+                <text x="245" y="53" fill="#585e72" fontSize="8">origin/main</text>
+
+                <circle cx="310" cy="120" r="2.5" fill="#444856"></circle>
+                <text x="270" y="124" fill="#585e72" fontSize="8">Remote Sync</text>
+
+                <circle cx="50" cy="150" r="2.5" fill="#444856"></circle>
+                <text x="55" y="153" fill="#585e72" fontSize="8">Staged</text>
+
+                <circle cx="280" cy="170" r="2.5" fill="#444856"></circle>
+                <text x="285" y="174" fill="#585e72" fontSize="8">GitHub Cloud</text>
+
+                <path d="M 40 100 Q 140 140 250 120 T 320 160" fill="none" stroke="#2c303d" strokeWidth="2" strokeDasharray="3,3"></path>
+                <path d="M 40 100 Q 140 140 180 125" fill="none" stroke="#a3e635" strokeWidth="2.5"></path>
+
+                <circle cx="180" cy="125" r="12" fill="none" stroke="#a3e635" strokeWidth="1.5" opacity="0.4" className="beacon-pulse"></circle>
+                <circle cx="180" cy="125" r="6" fill="#a3e635"></circle>
+                <circle cx="180" cy="125" r="2.5" fill="#131417"></circle>
+                <rect x="135" y="117" width="58" height="16" rx="8" fill="#17181d" stroke="#2b2e3a"></rect>
+                <text x="142" y="128" fill="#ffffff" fontSize="8" fontWeight="600">Git Node</text>
+              </svg>
+            </div>
+
+            <button
+              className="map-expand-btn"
+              onClick={() => setShowTerminalOverlay(!showTerminalOverlay)}
+              title="Toggle Live Console Stream"
+            >
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <polyline points="9 21 3 21 3 15"></polyline>
+                <line x1="21" y1="3" x2="14" y2="10"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>
+            </button>
+
+            {showTerminalOverlay && (
+              <div className="embedded-terminal-overlay font-mono">
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', borderBottom: '1px solid #242630', paddingBottom: '4px' }}>
+                  <span style={{ color: '#f2795a', fontWeight: '700' }}>Live Engine Stream</span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.7rem' }} onClick={() => setLogs([])}>Clear</button>
+                    <button style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }} onClick={() => setShowTerminalOverlay(false)}>✕</button>
+                  </div>
+                </div>
+                {logs.length === 0 && (
+                  <div style={{ color: '#64748b', padding: '0.5rem 0' }}>No log entries yet.</div>
+                )}
+                {logs.slice(-18).map((l, i) => (
+                  <div key={i} style={{ marginBottom: '3px' }}>
+                    <span style={{ color: '#64748b' }}>[{l.timestamp}]</span>{' '}
+                    <span style={{ color: l.type === 'error' ? '#f87171' : (l.type === 'success' ? '#4ade80' : '#f2795a'), fontWeight: '700' }}>
+                      [{l.type.toUpperCase()}]
+                    </span>{' '}
+                    {l.message}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="courier-profile-card">
+            <img className="courier-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" alt="Author" />
+            <div className="courier-info">
+              <span className="courier-label">Author Identity</span>
+              <span className="courier-name">{config.githubAllowedUser || 'Sachindrapandeyyy'}</span>
+            </div>
+            <div className="courier-actions">
+              <button className="courier-btn" title="Instant Commit" onClick={() => handleExecuteManualCommit()} disabled={committing}>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+              </button>
+              <button className="courier-btn" title="Backdate / Batch Modal" onClick={() => setShowManualCommitModal(true)}>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="16" y1="2" x2="16" y2="6"></line>
+                  <line x1="8" y1="2" x2="8" y2="6"></line>
+                  <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+              </button>
+              <button className="courier-btn" title="Force Run Scheduler" onClick={handleTriggerSchedulerScript} disabled={triggeringScheduler}>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 5. Bottom Section: Recent Commit Activities Data Table */}
+      <section className="activities-table-section">
+        <div className="table-header-bar">
+          <div className="table-title-group">
+            <h3 className="table-title">Recent Commit Activities</h3>
+            <div className="filter-pills">
+              <button className={`filter-pill ${activeFilter === 'all' ? 'active' : ''}`} onClick={() => setActiveFilter('all')}>
+                • All ({gitCommits.length})
+              </button>
+              <button className={`filter-pill ${activeFilter === 'feat' ? 'active' : ''}`} onClick={() => setActiveFilter('feat')}>
+                Features ({featCount})
+              </button>
+              <button className={`filter-pill ${activeFilter === 'fix' ? 'active' : ''}`} onClick={() => setActiveFilter('fix')}>
+                Bugfixes ({fixCount})
+              </button>
+              <button className={`filter-pill ${activeFilter === 'excuses' ? 'active' : ''}`} onClick={() => setActiveFilter('excuses')}>
+                Excuses ({excuseCount})
+              </button>
+            </div>
+          </div>
+
+          <div className="table-actions-group">
+            <button className="btn-customize" onClick={() => setShowPhrasesModal(true)}>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="4" y1="21" x2="4" y2="14"></line>
+                <line x1="4" y1="10" x2="4" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12" y2="3"></line>
+                <line x1="20" y1="21" x2="20" y2="16"></line>
+                <line x1="20" y1="12" x2="20" y2="3"></line>
+              </svg>
+              Excuse Phrases
+            </button>
+            <span className="pagination-text">Showing {filteredCommits.slice(0, 15).length} of {filteredCommits.length} commits</span>
+          </div>
+        </div>
+
+        <div className="table-container">
+          <table className="activities-table">
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontFamily: 'var(--font-display)' }}>
-                <th style={{ padding: '10px 12px' }}>Hash</th>
-                <th style={{ padding: '10px 12px' }}>Message</th>
-                <th style={{ padding: '10px 12px' }}>Timestamp</th>
+              <tr>
+                <th className="th-checkbox">
+                  <input type="checkbox" readOnly />
+                </th>
+                <th>Commit ID <span>↕</span></th>
+                <th>Category <span>↕</span></th>
+                <th>Commit Message / Excuse <span>↕</span></th>
+                <th>Repository <span>↕</span></th>
+                <th>Timestamp <span>↕</span></th>
+                <th>Route <span>↕</span></th>
+                <th>Author <span>↕</span></th>
+                <th>Diff <span>↕</span></th>
+                <th>Status <span>↕</span></th>
+                <th className="th-actions"></th>
               </tr>
             </thead>
             <tbody>
-              {gitCommits.length === 0 ? (
+              {filteredCommits.length === 0 ? (
                 <tr>
-                  <td colSpan="3" style={{ padding: '20px 12px', textAlign: 'center', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                    No commits found in target repository. Use the manual committer panel above to initialize activity.
+                  <td colSpan="11" style={{ textAlign: 'center', padding: '2.5rem', color: '#64748b' }}>
+                    No matching commit records found. Click "+ Trigger Commits" to generate activity!
                   </td>
                 </tr>
               ) : (
-                gitCommits.slice(0, 10).map((c, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                    <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', color: 'var(--color-cyan)' }}>{c.hash}</td>
-                    <td style={{ padding: '10px 12px', color: '#fff', fontWeight: '500' }}>{c.message}</td>
-                    <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{new Date(c.date).toLocaleString()}</td>
-                  </tr>
-                ))
+                filteredCommits.slice(0, 15).map((commit, i) => {
+                  const isPushed = !!config.githubUserToken && !!config.githubRepoName;
+                  const isFix = commit.message.toLowerCase().includes('fix') || commit.message.toLowerCase().includes('bug');
+                  const isFeat = commit.message.toLowerCase().includes('feat') || commit.message.toLowerCase().includes('add');
+                  const category = isFix ? 'Bugfix / Patch' : (isFeat ? 'Feature' : 'Developer Excuse');
+
+                  return (
+                    <tr key={commit.hash || i}>
+                      <td className="td-checkbox"><input type="checkbox" readOnly /></td>
+                      <td className="order-id-cell" style={{ cursor: 'pointer' }} onClick={() => {
+                        navigator.clipboard.writeText(commit.hash);
+                        showToast(`Copied commit #${commit.hash}`);
+                      }}>
+                        #{commit.hash}
+                      </td>
+                      <td>{category}</td>
+                      <td style={{ color: '#ffffff', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={commit.message}>
+                        {commit.message}
+                      </td>
+                      <td>{config.githubRepoName || 'Local Workspace'}</td>
+                      <td>{commit.date ? commit.date.split(' ')[0] : 'Today'}</td>
+                      <td>HEAD &rarr; origin</td>
+                      <td>{config.githubAllowedUser || 'Sachindrapandeyyy'}</td>
+                      <td style={{ fontWeight: '600', color: '#fff' }}>+{(i + 1) * 7} / -{(i + 1) * 2}</td>
+                      <td>
+                        <span className={isPushed ? 'delivered-pill' : 'transit-pill'}>
+                          {isPushed ? 'Pushed' : 'Local'}
+                        </span>
+                      </td>
+                      <td className="td-actions" onClick={() => {
+                        navigator.clipboard.writeText(commit.hash);
+                        showToast(`Copied commit hash #${commit.hash}`);
+                      }} title="Copy Hash">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" style={{ display: 'inline' }}>
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
+
+      {/* ========================================================
+          MODALS
+         ======================================================== */}
+
+      {/* MODAL 1: Manual / Backdated Commit Trigger */}
+      {showManualCommitModal && (
+        <div className="modal-backdrop" onClick={() => setShowManualCommitModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-group">
+                <h3>⚡ On-Demand Commit Trigger</h3>
+                <span className="modal-subtitle">Generate organic commits instantly or backdate to fill past calendar days</span>
+              </div>
+              <button className="modal-close-btn" onClick={() => setShowManualCommitModal(false)}>✕</button>
+            </div>
+
+            <form onSubmit={handleExecuteManualCommit} className="modal-body">
+              <div className="name-fields-row">
+                <div className="form-row">
+                  <label>Commit Count (1 - 20)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={manualCount}
+                    onChange={(e) => setManualCount(parseInt(e.target.value, 10) || 1)}
+                    required
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Target Date (Supports Backdating)</label>
+                  <input
+                    type="date"
+                    value={manualDate}
+                    onChange={(e) => setManualDate(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <label>Custom Commit Message (Leave blank for random excuse from bank)</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    placeholder="eg. Refactored legacy authentication middleware"
+                    value={manualPhraseInput}
+                    onChange={(e) => setManualPhraseInput(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn-pill-secondary"
+                    onClick={() => {
+                      const all = [...(phrases.presets || []), ...(phrases.customPhrases || [])];
+                      if (all.length > 0) {
+                        const random = all[Math.floor(Math.random() * all.length)];
+                        setManualPhraseInput(random);
+                      }
+                    }}
+                  >
+                    🎲 Pick Random
+                  </button>
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button type="button" className="btn-pill-secondary" onClick={() => setShowManualCommitModal(false)}>Cancel</button>
+                <button type="submit" className="btn-pill-coral" disabled={committing}>
+                  {committing ? 'Executing...' : 'Run Commit Sequence'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: Phrases Bank Manager */}
+      {showPhrasesModal && (
+        <div className="modal-backdrop" onClick={() => setShowPhrasesModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-group">
+                <h3>💬 Developer Excuse Phrases Bank</h3>
+                <span className="modal-subtitle">Curated developer excuses and custom quotes used for scheduled and automated commits</span>
+              </div>
+              <button className="modal-close-btn" onClick={() => setShowPhrasesModal(false)}>✕</button>
+            </div>
+
+            <div className="modal-body">
+              {/* Presets Switch */}
+              <div className="switch-row">
+                <div>
+                  <span className="switch-title">Enable Preset Excuses Bank (50+ Curated Quotes)</span>
+                  <span className="switch-desc">Includes funny developer excuses like "Fixed a bug that only happened on Tuesdays"</span>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={phrases.usePresetPhrases}
+                    onChange={(e) => handleTogglePresets(e.target.checked)}
+                  />
+                  <span className="toggle-track"></span>
+                </label>
+              </div>
+
+              {/* Add Custom Phrase */}
+              <form onSubmit={handleAddCustomPhrase} className="input-action-row" style={{ marginTop: '0.5rem' }}>
+                <input
+                  type="text"
+                  placeholder="Type a new custom commit phrase..."
+                  value={newCustomPhrase}
+                  onChange={(e) => setNewCustomPhrase(e.target.value)}
+                />
+                <button type="submit" className="btn-pill-coral" style={{ padding: '0.65rem 1.1rem' }}>Add</button>
+              </form>
+
+              {/* Custom Phrases List */}
+              <div style={{ marginTop: '0.8rem' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#cbd5e1' }}>Your Custom Phrases ({phrases.customPhrases?.length || 0}):</span>
+                <div style={{ maxHeight: '140px', overflowY: 'auto', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  {(!phrases.customPhrases || phrases.customPhrases.length === 0) ? (
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>No custom phrases added yet. Type one above!</span>
+                  ) : (
+                    phrases.customPhrases.map((phrase, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#121419', padding: '0.5rem 0.85rem', borderRadius: '8px', border: '1px solid #242630' }}>
+                        <span style={{ fontSize: '0.78rem', color: '#e2e8f0' }}>{phrase}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCustomPhrase(i)}
+                          style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '0.85rem' }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Search Preset Excuses */}
+              <div style={{ marginTop: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#cbd5e1' }}>Preset Excuses Bank:</span>
+                  <input
+                    type="text"
+                    placeholder="Search presets..."
+                    value={phraseSearch}
+                    onChange={(e) => setPhraseSearch(e.target.value)}
+                    style={{ width: '180px', padding: '0.35rem 0.65rem', fontSize: '0.75rem' }}
+                  />
+                </div>
+                <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  {(phrases.presets || [])
+                    .filter(p => !phraseSearch || p.toLowerCase().includes(phraseSearch.toLowerCase()))
+                    .slice(0, 30)
+                    .map((p, i) => (
+                      <div key={i} style={{ background: '#101115', padding: '0.45rem 0.75rem', borderRadius: '6px', fontSize: '0.74rem', color: '#94a3b8' }}>
+                        "{p}"
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button type="button" className="btn-pill-coral" onClick={() => setShowPhrasesModal(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Scheduler & Repository Configuration */}
+      {showSettingsModal && (
+        <div className="modal-backdrop" onClick={() => setShowSettingsModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-group">
+                <h3>⚙️ Engine & Scheduler Configuration</h3>
+                <span className="modal-subtitle">Configure daily commit frequency, working hours, and GitHub remote repository</span>
+              </div>
+              <button className="modal-close-btn" onClick={() => setShowSettingsModal(false)}>✕</button>
+            </div>
+
+            <form onSubmit={handleSaveConfig} className="modal-body">
+              <div className="form-row">
+                <label>GitHub Personal Access Token (PAT with 'repo' scope)</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="password"
+                    value={config.githubUserToken}
+                    onChange={(e) => setConfig({ ...config, githubUserToken: e.target.value })}
+                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  />
+                  <button
+                    type="button"
+                    className="btn-pill-secondary"
+                    style={{ whiteSpace: 'nowrap' }}
+                    onClick={handleFetchUserRepos}
+                    disabled={loadingRepos}
+                  >
+                    {loadingRepos ? 'Fetching...' : 'Fetch My Repos'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <label>Target GitHub Repository (username/repo-name)</label>
+                {userRepos.length > 0 ? (
+                  <select
+                    value={config.githubRepoName}
+                    onChange={(e) => setConfig({ ...config, githubRepoName: e.target.value })}
+                  >
+                    <option value="">Select a repository or type below...</option>
+                    {userRepos.map((r, i) => (
+                      <option key={i} value={r.fullName}>{r.fullName}</option>
+                    ))}
+                  </select>
+                ) : null}
+                <input
+                  type="text"
+                  value={config.githubRepoName}
+                  onChange={(e) => setConfig({ ...config, githubRepoName: e.target.value })}
+                  placeholder="Sachindrapandeyyy/automatic_contributions"
+                  style={{ marginTop: userRepos.length > 0 ? '6px' : '0' }}
+                />
+              </div>
+
+              <div className="name-fields-row">
+                <div className="form-row">
+                  <label>Min Daily Commits</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={config.minCommits}
+                    onChange={(e) => setConfig({ ...config, minCommits: parseInt(e.target.value, 10) || 1 })}
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Max Daily Commits</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={config.maxCommits}
+                    onChange={(e) => setConfig({ ...config, maxCommits: parseInt(e.target.value, 10) || 15 })}
+                  />
+                </div>
+              </div>
+
+              <div className="name-fields-row">
+                <div className="form-row">
+                  <label>Work Hours Window Start (0-23)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={config.startHour}
+                    onChange={(e) => setConfig({ ...config, startHour: parseInt(e.target.value, 10) || 9 })}
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Work Hours Window End (0-23)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={config.endHour}
+                    onChange={(e) => setConfig({ ...config, endHour: parseInt(e.target.value, 10) || 18 })}
+                  />
+                </div>
+              </div>
+
+              <div className="switch-row">
+                <div>
+                  <span className="switch-title">Automated Daily Scheduler Active</span>
+                  <span className="switch-desc">Automatically registers Windows Task Scheduler / Cron to execute daily commits</span>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={config.enabled}
+                    onChange={(e) => setConfig({ ...config, enabled: e.target.checked })}
+                  />
+                  <span className="toggle-track"></span>
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#101115', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid #242630' }}>
+                <div>
+                  <span style={{ fontSize: '0.8rem', fontWeight: '600', display: 'block' }}>Trigger Scheduler Script Now</span>
+                  <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Runs the actual scheduler code immediately to simulate a scheduled day</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn-pill-secondary"
+                  onClick={handleTriggerSchedulerScript}
+                  disabled={triggeringScheduler}
+                >
+                  {triggeringScheduler ? 'Running...' : 'Run Test'}
+                </button>
+              </div>
+
+              <div className="modal-footer">
+                <button type="button" className="btn-pill-secondary" onClick={() => setShowSettingsModal(false)}>Cancel</button>
+                <button type="submit" className="btn-pill-coral">Save Settings</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: AI Code Generator (BYOK LLM) */}
+      {showAiModal && (
+        <div className="modal-backdrop" onClick={() => setShowAiModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-group">
+                <h3>🤖 AI Commit Generator (Bring-Your-Own-Key)</h3>
+                <span className="modal-subtitle">Use LLMs to generate real, syntactically valid code commits instead of plain text excuses</span>
+              </div>
+              <button className="modal-close-btn" onClick={() => setShowAiModal(false)}>✕</button>
+            </div>
+
+            <form onSubmit={handleSaveConfig} className="modal-body">
+              <div className="form-row">
+                <label>AI Provider</label>
+                <select
+                  value={config.llmProvider}
+                  onChange={(e) => setConfig({ ...config, llmProvider: e.target.value })}
+                >
+                  <option value="none">Disabled (Use Excuses Bank)</option>
+                  <option value="openai">OpenAI (GPT-4o, GPT-4o-mini)</option>
+                  <option value="anthropic">Anthropic (Claude 3.5 Sonnet)</option>
+                </select>
+              </div>
+
+              {config.llmProvider !== 'none' && (
+                <>
+                  <div className="form-row">
+                    <label>API Key</label>
+                    <input
+                      type="password"
+                      placeholder="sk-..."
+                      value={config.llmApiKey}
+                      onChange={(e) => setConfig({ ...config, llmApiKey: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="name-fields-row">
+                    <div className="form-row">
+                      <label>Model</label>
+                      <input
+                        type="text"
+                        placeholder={config.llmProvider === 'openai' ? 'gpt-4o-mini' : 'claude-3-5-sonnet-20240620'}
+                        value={config.llmModel}
+                        onChange={(e) => setConfig({ ...config, llmModel: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-row">
+                      <label>Target Language</label>
+                      <select
+                        value={config.llmLanguage || 'JavaScript'}
+                        onChange={(e) => setConfig({ ...config, llmLanguage: e.target.value })}
+                      >
+                        <option value="JavaScript">JavaScript</option>
+                        <option value="TypeScript">TypeScript</option>
+                        <option value="Python">Python</option>
+                        <option value="Go">Go</option>
+                        <option value="Rust">Rust</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#101115', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid #242630', fontSize: '0.74rem', color: '#94a3b8' }}>
+                    💡 When AI generation is enabled, commits will contain actual code patches (helper methods, unit tests, docstrings) generated on-the-fly and written to your repository!
+                  </div>
+                </>
+              )}
+
+              <div className="modal-footer">
+                <button type="button" className="btn-pill-secondary" onClick={() => setShowAiModal(false)}>Cancel</button>
+                <button type="submit" className="btn-pill-coral">Save AI Settings</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="toast-popup show">
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 }
-
-export default App;
