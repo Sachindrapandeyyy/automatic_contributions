@@ -72,8 +72,10 @@ async function run() {
         targetDate.setDate(today.getDate() - i);
         
         // Roll random count for the missed day
-        const min = parseInt(config.minCommits) || 1;
-        const max = parseInt(config.maxCommits) || 15;
+        if (!config.history) config.history = [];
+        let min = parseInt(config.minCommits, 10) || 1;
+        let max = parseInt(config.maxCommits, 10) || 15;
+        if (min > max) [min, max] = [max, min];
         const count = Math.floor(Math.random() * (max - min + 1)) + min;
 
         console.log(`Backfilling ${count} commits for ${targetDate.toISOString().split('T')[0]}...`);
@@ -97,8 +99,10 @@ async function run() {
   }
 
   // Execute for today
-  const min = parseInt(config.minCommits) || 1;
-  const max = parseInt(config.maxCommits) || 15;
+  if (!config.history) config.history = [];
+  let min = parseInt(config.minCommits, 10) || 1;
+  let max = parseInt(config.maxCommits, 10) || 15;
+  if (min > max) [min, max] = [max, min];
   const count = Math.floor(Math.random() * (max - min + 1)) + min;
 
   console.log(`Executing ${count} randomized commits for today (${todayStr})...`);

@@ -305,6 +305,27 @@ app.post('/api/config', authMiddleware, (req, res) => {
   const newConfig = req.body;
   const currentConfig = readConfig();
 
+  // Validate commit ranges
+  if (newConfig.minCommits !== undefined && newConfig.maxCommits !== undefined) {
+    const minC = parseInt(newConfig.minCommits, 10);
+    const maxC = parseInt(newConfig.maxCommits, 10);
+    if (minC > maxC) {
+      return res.status(400).json({ success: false, error: 'Minimum commits cannot be greater than maximum commits.' });
+    }
+  }
+
+  // Validate hours
+  if (newConfig.startHour !== undefined && newConfig.endHour !== undefined) {
+    const sH = parseInt(newConfig.startHour, 10);
+    const eH = parseInt(newConfig.endHour, 10);
+    if (sH < 0 || sH > 23 || eH < 0 || eH > 23) {
+      return res.status(400).json({ success: false, error: 'Start and end hours must be between 0 and 23.' });
+    }
+    if (sH >= eH) {
+      return res.status(400).json({ success: false, error: 'Start hour must be earlier than end hour.' });
+    }
+  }
+
   // If password changes, hash it
   if (newConfig.password) {
     newConfig.passwordHash = hashPassword(newConfig.password);
@@ -330,7 +351,7 @@ app.post('/api/config', authMiddleware, (req, res) => {
 
   // Handle Auto-Cloning to internal workspace on repository change
   if (updatedConfig.githubRepoName && updatedConfig.githubUserToken) {
-    const targetRepoPath = path.join(__dirname, 'workspace', updatedConfig.githubRepoName.replace('/', '-'));
+    const targetRepoPath = path.join(__dirname, 'workspace', updatedConfig.githubRepoName.replace(/\//g, '-'));
     updatedConfig.repoPath = targetRepoPath;
 
     if (!fs.existsSync(path.join(targetRepoPath, '.git'))) {
@@ -435,13 +456,15 @@ app.get('/api/history', authMiddleware, (req, res) => {
       const gitLogOutput = execSync('git log --pretty=format:"%h|%an|%ai|%s" -n 100', { cwd: absPath }).toString().trim();
       if (gitLogOutput) {
         gitCommits = gitLogOutput.split('\n').map(line => {
-          const parts = line.split('|');
+          const cleanLine = line.replace(/\r$/, '').trim();
+          if (!cleanLine) return null;
+          const parts = cleanLine.split('|');
           const hash = parts[0];
           const author = parts[1] || config.githubAllowedUser || 'Developer';
           const date = parts[2];
           const message = parts.slice(3).join('|');
           return { hash, author, date, message };
-        });
+        }).filter(Boolean);
       }
     } catch (gitErr) {
       console.log('No commits or git log error:', gitErr.message);
@@ -485,14 +508,15 @@ app.post('/api/commit-now', authMiddleware, async (req, res) => {
       phrasesPool = ['Manual on-demand commit'];
     }
 
-    if (phrase) {
+    const commitCount = count ? Math.max(1, parseInt(count, 10)) : 1;
+    if (commitCount === 1 && phrase) {
       const result = await makeSingleCommit(config.repoPath, phrase, targetDate);
       results.push(result);
     } else {
-      const commitCount = count ? parseInt(count) : 1;
+      const pool = phrase ? [phrase] : phrasesPool;
       results = await performDailyCommits(
         config.repoPath,
-        phrasesPool,
+        pool,
         commitCount,
         targetDate,
         config.startHour,

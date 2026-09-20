@@ -364,10 +364,36 @@ export default function App() {
   // --- Save Config Modal ---
   const handleSaveConfig = async (e) => {
     e.preventDefault();
+    const minC = parseInt(config.minCommits, 10) || 1;
+    const maxC = parseInt(config.maxCommits, 10) || 15;
+    const startH = parseInt(config.startHour, 10) || 0;
+    const endH = parseInt(config.endHour, 10) || 0;
+
+    if (minC > maxC) {
+      showToast('Min daily commits cannot exceed max daily commits.');
+      return;
+    }
+    if (startH < 0 || startH > 23 || endH < 0 || endH > 23) {
+      showToast('Work hours must be between 0 and 23.');
+      return;
+    }
+    if (startH >= endH) {
+      showToast('Start hour must be earlier than end hour.');
+      return;
+    }
+
+    const payload = {
+      ...config,
+      minCommits: minC,
+      maxCommits: maxC,
+      startHour: startH,
+      endHour: endH
+    };
+
     try {
       const res = await authFetch(`${API_BASE}/config`, {
         method: 'POST',
-        body: JSON.stringify(config)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (data.success) {

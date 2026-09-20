@@ -160,10 +160,26 @@ async function runAudit() {
     assert(schedRes.status === 200 && schedData.success, 'POST /api/scheduler/trigger executed node scheduler.js');
 
     // 11. Frontend Vite HTML Check
-    console.log('[11/11] Checking Vite Frontend dev server response at http://localhost:5173...');
+    console.log('[11/13] Checking Vite Frontend dev server response at http://localhost:5173...');
     const feRes = await fetch('http://localhost:5173');
     const feHtml = await feRes.text();
     assert(feRes.status === 200 && feHtml.includes('<div id="root"></div>'), 'Frontend dev server serves index.html on port 5173');
+
+    // 12. Backend Static UI Check
+    console.log('[12/13] Checking Backend Static UI serving on port 5000...');
+    const beUiRes = await fetch('http://localhost:5000');
+    const beUiHtml = await beUiRes.text();
+    assert(beUiRes.status === 200 && beUiHtml.includes('<div id="root"></div>'), 'Backend server serves compiled SPA on port 5000');
+
+    const beStatusRes = await fetch('http://localhost:5000/service-status');
+    const beStatusHtml = await beStatusRes.text();
+    assert(beStatusRes.status === 200 && beStatusHtml.includes('GitGlobal Service Node'), 'Backend serves /service-status monitor UI');
+
+    // 13. Safety Cleanup: Reset Password
+    console.log('[13/13] Resetting instance to unlocked passwordless state for developer convenience...');
+    const resetRes = await fetch(`${API_BASE}/auth/reset`, { method: 'POST' });
+    const resetData = await resetRes.json();
+    assert(resetRes.status === 200 && resetData.success, 'POST /api/auth/reset successfully cleared password hash');
 
   } catch (err) {
     console.error('Audit encountered unexpected error:', err);

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { readConfig } from './config-manager.js';
 
 /**
@@ -227,13 +227,13 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
   }
 
   const dateStr = commitDate.toISOString();
-  execSync(`git add "${filename}"`, { cwd: absolutePath });
+  execFileSync('git', ['add', filename], { cwd: absolutePath });
   
   // Commit with custom environment date and author variables
   const authorName = process.env.GIT_AUTHOR_NAME || process.env.GITHUB_ALLOWED_USER || config.githubAllowedUser || 'Auto Committer';
   const authorEmail = process.env.GIT_AUTHOR_EMAIL || (config.githubAllowedUser ? `${config.githubAllowedUser}@users.noreply.github.com` : 'auto-committer@example.com');
   
-  execSync(`git commit -m "${commitMessage.replace(/"/g, '\\"')}"`, {
+  execFileSync('git', ['commit', '-m', commitMessage], {
     cwd: absolutePath,
     env: {
       ...process.env,
@@ -246,7 +246,7 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
     }
   });
 
-  const commitHash = execSync('git rev-parse HEAD', { cwd: absolutePath }).toString().trim();
+  const commitHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: absolutePath }).toString().trim();
 
   // Push to remote if origin is configured and pushAfterCommit is requested
   if (pushAfterCommit) {
@@ -293,9 +293,15 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
  */
 export function generateRandomTimestamps(baseDate, count, startHour = 9, endHour = 18) {
   const timestamps = [];
-  const startMs = new Date(baseDate).setHours(startHour, 0, 0, 0);
-  const endMs = new Date(baseDate).setHours(endHour, 0, 0, 0);
-  const diffMs = endMs - startMs;
+  let sH = Math.min(startHour, endHour);
+  let eH = Math.max(startHour, endHour);
+  if (sH === eH) {
+    if (eH < 23) eH++;
+    else sH = Math.max(0, sH - 1);
+  }
+  const startMs = new Date(baseDate).setHours(sH, 0, 0, 0);
+  const endMs = new Date(baseDate).setHours(eH, 0, 0, 0);
+  const diffMs = Math.max(1000, endMs - startMs);
 
   for (let i = 0; i < count; i++) {
     const randomMs = startMs + Math.random() * diffMs;
