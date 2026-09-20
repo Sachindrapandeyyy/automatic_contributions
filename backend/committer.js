@@ -9,8 +9,11 @@ import { readConfig } from './config-manager.js';
  * or https://<token>@github.com/<owner>/<repo>.git
  */
 export function getAuthenticatedGitUrl(token, repoName, username) {
-  if (!token || !repoName) return '';
+  if (!repoName) return '';
   const cleanRepo = repoName.replace(/^\/+|\/+$/g, '').replace(/\.git$/, '');
+  if (!token || !token.trim()) {
+    return `https://github.com/${cleanRepo}.git`;
+  }
   const cleanToken = token.trim();
   if (username && username.trim()) {
     return `https://${encodeURIComponent(username.trim())}:${encodeURIComponent(cleanToken)}@github.com/${cleanRepo}.git`;
@@ -49,7 +52,7 @@ export function ensureRepositoryExists(repoPath) {
   if (!fs.existsSync(gitPath)) {
     // Check if we should clone instead of initializing a blank repository
     const config = readConfig();
-    if (config.githubRepoName && config.githubUserToken && absolutePath.includes('workspace')) {
+    if (config.githubRepoName && absolutePath.includes('workspace')) {
       try {
         console.log(`[Auto-Recover] Workspace git directory missing. Auto-cloning ${config.githubRepoName}...`);
         if (fs.existsSync(absolutePath)) {
@@ -110,7 +113,7 @@ export function ensureRepositoryExists(repoPath) {
       }
     });
 
-    if (config.githubRepoName && config.githubUserToken) {
+    if (config.githubRepoName) {
       try {
         const authedUrl = getAuthenticatedGitUrl(config.githubUserToken, config.githubRepoName, config.githubAllowedUser);
         execFileSync('git', ['remote', 'add', 'origin', authedUrl], { cwd: absolutePath });
@@ -291,7 +294,7 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
   if (pushAfterCommit) {
     try {
       const config = readConfig();
-      if (config.githubUserToken && config.githubRepoName) {
+      if (config.githubRepoName) {
         const authedUrl = getAuthenticatedGitUrl(config.githubUserToken, config.githubRepoName, config.githubAllowedUser);
         try {
           execSync(`git remote set-url origin "${authedUrl}"`, { cwd: absolutePath });
@@ -385,7 +388,7 @@ export async function performDailyCommits(repoPath, phrases, count, date = new D
   // Push the final state once at the end of the batch
   try {
     const config = readConfig();
-    if (config.githubUserToken && config.githubRepoName) {
+    if (config.githubRepoName) {
       const authedUrl = getAuthenticatedGitUrl(config.githubUserToken, config.githubRepoName, config.githubAllowedUser);
       try {
         execSync(`git remote set-url origin "${authedUrl}"`, { cwd: absolutePath });

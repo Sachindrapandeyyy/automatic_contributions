@@ -1352,7 +1352,7 @@ export default function App() {
                 </tr>
               ) : (
                 filteredCommits.slice(0, 15).map((commit, i) => {
-                  const isPushed = !!config.githubUserToken && !!config.githubRepoName;
+                  const isPushed = !!config.githubRepoName;
                   const commitMsg = commit.message || '';
                   const isFix = commitMsg.toLowerCase().includes('fix') || commitMsg.toLowerCase().includes('bug');
                   const isFeat = commitMsg.toLowerCase().includes('feat') || commitMsg.toLowerCase().includes('add');

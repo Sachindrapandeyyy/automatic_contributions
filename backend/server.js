@@ -350,7 +350,7 @@ app.post('/api/config', authMiddleware, (req, res) => {
   };
 
   // Handle Auto-Cloning to internal workspace on repository change
-  if (updatedConfig.githubRepoName && updatedConfig.githubUserToken) {
+  if (updatedConfig.githubRepoName) {
     const targetRepoPath = path.join(__dirname, 'workspace', updatedConfig.githubRepoName.replace(/\//g, '-'));
     updatedConfig.repoPath = targetRepoPath;
 
