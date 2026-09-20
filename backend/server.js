@@ -424,11 +424,15 @@ app.get('/api/history', authMiddleware, (req, res) => {
 
     let gitCommits = [];
     try {
-      const gitLogOutput = execSync('git log --pretty=format:"%h|%ai|%s" -n 100', { cwd: absPath }).toString().trim();
+      const gitLogOutput = execSync('git log --pretty=format:"%h|%an|%ai|%s" -n 100', { cwd: absPath }).toString().trim();
       if (gitLogOutput) {
         gitCommits = gitLogOutput.split('\n').map(line => {
-          const [hash, date, message] = line.split('|');
-          return { hash, date, message };
+          const parts = line.split('|');
+          const hash = parts[0];
+          const author = parts[1] || config.githubAllowedUser || 'Developer';
+          const date = parts[2];
+          const message = parts.slice(3).join('|');
+          return { hash, author, date, message };
         });
       }
     } catch (gitErr) {

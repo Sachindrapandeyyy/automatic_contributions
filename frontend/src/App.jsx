@@ -76,7 +76,6 @@ export default function App() {
     setTimeout(() => setToastMessage(''), 3400);
   };
 
-  // Auth fetch wrapper
   const handleLogout = useCallback(() => {
     localStorage.removeItem('git_committer_token');
     setToken('');
@@ -192,7 +191,7 @@ export default function App() {
     }
   }, [isLoggedIn, fetchData]);
 
-  // --- Auth Form Submit (Strictly Password without fake Google/email fields) ---
+  // --- Auth Form Submit ---
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -252,8 +251,8 @@ export default function App() {
     if (config.githubClientId) {
       window.location.href = `https://github.com/login/oauth/authorize?client_id=${config.githubClientId}&scope=repo`;
     } else {
-      showToast('GitHub OAuth Client ID is not configured yet. Please enter your PAT in Settings.');
-      setShowSettingsModal(true);
+      showToast('GitHub OAuth Client ID not configured. Please use Master Password login.');
+      setActiveAuthStep(1);
     }
   };
 
@@ -495,7 +494,10 @@ export default function App() {
   // Counts for filter pills
   const featCount = useMemo(() => gitCommits.filter(c => c.message.toLowerCase().includes('feat') || c.message.toLowerCase().includes('add') || c.message.toLowerCase().includes('implement')).length, [gitCommits]);
   const fixCount = useMemo(() => gitCommits.filter(c => c.message.toLowerCase().includes('fix') || c.message.toLowerCase().includes('bug') || c.message.toLowerCase().includes('patch')).length, [gitCommits]);
-  const excuseCount = useMemo(() => gitCommits.length - featCount - fixCount, [gitCommits, featCount, fixCount]);
+  const excuseCount = useMemo(() => Math.max(0, gitCommits.length - featCount - fixCount), [gitCommits, featCount, fixCount]);
+
+  // Helper avatar URL for user identity
+  const avatarUrl = `https://github.com/${config.githubAllowedUser || 'Sachindrapandeyyy'}.png`;
 
   // ========================================================
   // 1. AUTH / LOGIN VIEW (STRICT CLEAN IMPLEMENTATION)
@@ -555,31 +557,16 @@ export default function App() {
           <div className="auth-form-pane">
             <div className="form-wrapper">
               <div className="form-header">
-                <h2 className="form-title">{isPasswordSet ? 'Welcome Back' : 'Master Password Setup'}</h2>
+                <h2 className="form-title">
+                  {activeAuthStep === 1 && (isPasswordSet ? 'Welcome Back' : 'Master Password Setup')}
+                  {activeAuthStep === 2 && 'GitHub Connection'}
+                  {activeAuthStep === 3 && 'Schedule Overview'}
+                </h2>
                 <p className="form-subtitle">
-                  {isPasswordSet
-                    ? 'Enter your master password to access your Git synchronization hub.'
-                    : 'Configure a master password to secure your local auto-committer instance.'}
+                  {activeAuthStep === 1 && (isPasswordSet ? 'Enter your master password to access your Git synchronization hub.' : 'Configure a master password to secure your local auto-committer instance.')}
+                  {activeAuthStep === 2 && 'Link your GitHub account or configure Personal Access Token (PAT).'}
+                  {activeAuthStep === 3 && 'Configure your automated daily commit target and working hours.'}
                 </p>
-              </div>
-
-              {/* GitHub OAuth Button */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                <button
-                  type="button"
-                  className="btn-social"
-                  style={{ width: '100%' }}
-                  onClick={handleGitHubAuthClick}
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
-                  </svg>
-                  <span>Sign in with GitHub</span>
-                </button>
-              </div>
-
-              <div className="form-divider">
-                <span>Or unlock with password</span>
               </div>
 
               {authError && (
@@ -588,60 +575,139 @@ export default function App() {
                 </div>
               )}
 
-              <form onSubmit={handleAuthSubmit} className="auth-form-fields">
-                <div className="input-group">
-                  <label>{isPasswordSet ? 'Master Password' : 'Create Master Password'}</label>
-                  <div className="password-input-wrapper">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="Enter your secure password"
-                      value={authPassword}
-                      onChange={(e) => setAuthPassword(e.target.value)}
-                      required
-                      minLength={6}
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      className="eye-toggle-btn"
-                      onClick={() => setShowPassword(!showPassword)}
-                    >
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                        {showPassword ? (
-                          <>
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                            <line x1="1" y1="1" x2="23" y2="23"></line>
-                          </>
-                        ) : (
-                          <>
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                            <circle cx="12" cy="12" r="3"></circle>
-                          </>
-                        )}
-                      </svg>
+              {/* STEP 1: PASSWORD AUTHENTICATION */}
+              {activeAuthStep === 1 && (
+                <>
+                  <form onSubmit={handleAuthSubmit} className="auth-form-fields">
+                    <div className="input-group">
+                      <label>{isPasswordSet ? 'Master Password' : 'Create Master Password'}</label>
+                      <div className="password-input-wrapper">
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder="Enter your secure password"
+                          value={authPassword}
+                          onChange={(e) => setAuthPassword(e.target.value)}
+                          required
+                          minLength={6}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          className="eye-toggle-btn"
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                            {showPassword ? (
+                              <>
+                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                                <line x1="1" y1="1" x2="23" y2="23"></line>
+                              </>
+                            ) : (
+                              <>
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                              </>
+                            )}
+                          </svg>
+                        </button>
+                      </div>
+                      <span className="field-hint">Must be at least 6 characters</span>
+                    </div>
+
+                    {!isPasswordSet && (
+                      <div className="input-group">
+                        <label>Confirm Master Password</label>
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder="Re-enter password to confirm"
+                          value={authConfirmPassword}
+                          onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                          required
+                          minLength={6}
+                        />
+                      </div>
+                    )}
+
+                    <button type="submit" className="btn-primary-auth">
+                      {isPasswordSet ? 'Unlock Dashboard' : 'Save Password & Enter'}
                     </button>
+                  </form>
+
+                  <div className="form-divider">
+                    <span>Or sign in with GitHub</span>
                   </div>
-                  <span className="field-hint">Must be at least 6 characters</span>
+
+                  <button
+                    type="button"
+                    className="btn-social"
+                    style={{ width: '100%' }}
+                    onClick={handleGitHubAuthClick}
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                      <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+                    </svg>
+                    <span>Sign in with GitHub</span>
+                  </button>
+                </>
+              )}
+
+              {/* STEP 2: GITHUB CONNECTION INFO */}
+              {activeAuthStep === 2 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <button
+                    type="button"
+                    className="btn-social"
+                    style={{ width: '100%', padding: '0.85rem' }}
+                    onClick={handleGitHubAuthClick}
+                  >
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                      <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+                    </svg>
+                    <span>Authenticate via GitHub OAuth</span>
+                  </button>
+
+                  <div style={{ background: '#121419', border: '1px solid #242630', padding: '0.9rem', borderRadius: '12px', fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                    <span style={{ color: '#ffffff', fontWeight: '700', display: 'block', marginBottom: '4px' }}>Personal Access Token (PAT)</span>
+                    You can also link any public or private GitHub repository using a Personal Access Token with the <code style={{ color: '#f2795a' }}>repo</code> scope in the Dashboard settings.
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn-primary-auth"
+                    onClick={() => setActiveAuthStep(1)}
+                  >
+                    Go Back to Login
+                  </button>
                 </div>
+              )}
 
-                {!isPasswordSet && (
-                  <div className="input-group">
-                    <label>Confirm Master Password</label>
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="Re-enter password to confirm"
-                      value={authConfirmPassword}
-                      onChange={(e) => setAuthConfirmPassword(e.target.value)}
-                      required
-                      minLength={6}
-                    />
+              {/* STEP 3: SCHEDULE OVERVIEW */}
+              {activeAuthStep === 3 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ background: '#121419', border: '1px solid #242630', padding: '1rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                      <span style={{ color: '#94a3b8' }}>Daily Target:</span>
+                      <span style={{ color: '#ffffff', fontWeight: '700' }}>1 - 15 commits/day</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                      <span style={{ color: '#94a3b8' }}>Working Window:</span>
+                      <span style={{ color: '#ffffff', fontWeight: '700' }}>09:00 - 18:00 (Natural)</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                      <span style={{ color: '#94a3b8' }}>Phrases Bank:</span>
+                      <span style={{ color: '#4ade80', fontWeight: '700' }}>50+ Curated Excuses</span>
+                    </div>
                   </div>
-                )}
 
-                <button type="submit" className="btn-primary-auth">
-                  {isPasswordSet ? 'Unlock Dashboard' : 'Save Password & Enter'}
-                </button>
-              </form>
+                  <button
+                    type="button"
+                    className="btn-primary-auth"
+                    onClick={() => setActiveAuthStep(1)}
+                  >
+                    Ready? Unlock Dashboard
+                  </button>
+                </div>
+              )}
 
               <div className="auth-footer-text">
                 <span>Auto-Committer Engine</span>
@@ -704,7 +770,12 @@ export default function App() {
             <span className="notify-dot"></span>
           </button>
           <div className="user-profile-pill" onClick={handleLogout} title="Click to lock session">
-            <img className="user-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" alt="Avatar" />
+            <img
+              className="user-avatar"
+              src={avatarUrl}
+              alt={config.githubAllowedUser}
+              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = 'https://github.com/github.png'; }}
+            />
             <div className="user-meta">
               <span className="user-name">{config.githubAllowedUser || 'Sachindrapandeyyy'}</span>
               <span className="user-role">Lock Session</span>
@@ -935,18 +1006,18 @@ export default function App() {
         {/* Column 2: Tracking History Card */}
         <div className="card-tracking-history">
           <div className="card-header-row">
-            <h3 className="card-title">Tracking History</h3>
+            <h3 className="card-title">Revision History</h3>
             <button className="btn-dots-menu" onClick={() => setShowSettingsModal(true)}>•••</button>
           </div>
 
           <div className="tracking-id-row">
             <div>
-              <span className="tracking-id-label">Tracking ID</span>
+              <span className="tracking-id-label">Latest Commit Revision</span>
               <h4 className="tracking-id-value">
                 {latestCommit ? `#${latestCommit.hash}-sync` : '#HEAD-initial'}
               </h4>
             </div>
-            <span className={`status-pill-transit ${config.enabled ? 'green' : ''}`}>
+            <span className={`status-pill-engine ${config.enabled ? 'green' : ''}`}>
               {config.enabled ? 'Active Sync' : 'Idle Mode'}
             </span>
           </div>
@@ -955,7 +1026,7 @@ export default function App() {
             <div className="timeline-step">
               <div className="step-indicator green-dot"></div>
               <div className="step-info">
-                <span className="step-title">Current Status</span>
+                <span className="step-title">Engine State</span>
                 <span className="step-detail">
                   {config.enabled ? `Armed (${config.startHour}:00 - ${config.endHour}:00)` : 'Manual Execution Mode'}
                 </span>
@@ -977,7 +1048,7 @@ export default function App() {
             <div className="timeline-step">
               <div className="step-indicator muted-dot"></div>
               <div className="step-info">
-                <span className="step-title">Target Remote Waypoint</span>
+                <span className="step-title">Remote Target</span>
                 <span className="step-detail">{config.githubRepoName || 'Local Workspace'}</span>
               </div>
               <span className="step-time">origin/main</span>
@@ -992,7 +1063,7 @@ export default function App() {
                 <circle cx="18" cy="5" r="3"></circle>
               </svg>
               <div>
-                <span className="meta-label">Route</span>
+                <span className="meta-label">Git Refspec</span>
                 <span className="meta-val">HEAD &rarr; origin/main</span>
               </div>
             </div>
@@ -1079,19 +1150,24 @@ export default function App() {
             )}
           </div>
 
-          <div className="courier-profile-card">
-            <img className="courier-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" alt="Author" />
-            <div className="courier-info">
-              <span className="courier-label">Author Identity</span>
-              <span className="courier-name">{config.githubAllowedUser || 'Sachindrapandeyyy'}</span>
+          <div className="author-profile-card">
+            <img
+              className="author-avatar"
+              src={avatarUrl}
+              alt={config.githubAllowedUser}
+              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = 'https://github.com/github.png'; }}
+            />
+            <div className="author-info">
+              <span className="author-label">Author Identity</span>
+              <span className="author-name">{config.githubAllowedUser || 'Sachindrapandeyyy'}</span>
             </div>
-            <div className="courier-actions">
-              <button className="courier-btn" title="Instant Commit" onClick={() => handleExecuteManualCommit()} disabled={committing}>
+            <div className="author-actions">
+              <button className="author-btn" title="Instant Commit (Random Excuse)" onClick={() => handleExecuteManualCommit()} disabled={committing}>
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
                   <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                 </svg>
               </button>
-              <button className="courier-btn" title="Backdate / Batch Modal" onClick={() => setShowManualCommitModal(true)}>
+              <button className="author-btn" title="Backdate / Batch Modal" onClick={() => setShowManualCommitModal(true)}>
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
                   <line x1="16" y1="2" x2="16" y2="6"></line>
@@ -1099,7 +1175,7 @@ export default function App() {
                   <line x1="3" y1="10" x2="21" y2="10"></line>
                 </svg>
               </button>
-              <button className="courier-btn" title="Force Run Scheduler" onClick={handleTriggerSchedulerScript} disabled={triggeringScheduler}>
+              <button className="author-btn" title="Force Run Scheduler Now" onClick={handleTriggerSchedulerScript} disabled={triggeringScheduler}>
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
                   <polygon points="5 3 19 12 5 21 5 3"></polygon>
                 </svg>
@@ -1153,14 +1229,14 @@ export default function App() {
                 <th className="th-checkbox">
                   <input type="checkbox" readOnly />
                 </th>
-                <th>Commit ID <span>↕</span></th>
+                <th>Commit Hash <span>↕</span></th>
                 <th>Category <span>↕</span></th>
                 <th>Commit Message / Excuse <span>↕</span></th>
                 <th>Repository <span>↕</span></th>
                 <th>Timestamp <span>↕</span></th>
-                <th>Route <span>↕</span></th>
+                <th>Branch <span>↕</span></th>
                 <th>Author <span>↕</span></th>
-                <th>Diff <span>↕</span></th>
+                <th>Target File <span>↕</span></th>
                 <th>Status <span>↕</span></th>
                 <th className="th-actions"></th>
               </tr>
@@ -1178,11 +1254,12 @@ export default function App() {
                   const isFix = commit.message.toLowerCase().includes('fix') || commit.message.toLowerCase().includes('bug');
                   const isFeat = commit.message.toLowerCase().includes('feat') || commit.message.toLowerCase().includes('add');
                   const category = isFix ? 'Bugfix / Patch' : (isFeat ? 'Feature' : 'Developer Excuse');
+                  const author = commit.author || config.githubAllowedUser || 'Sachindrapandeyyy';
 
                   return (
                     <tr key={commit.hash || i}>
                       <td className="td-checkbox"><input type="checkbox" readOnly /></td>
-                      <td className="order-id-cell" style={{ cursor: 'pointer' }} onClick={() => {
+                      <td className="commit-hash-cell" style={{ cursor: 'pointer' }} onClick={() => {
                         navigator.clipboard.writeText(commit.hash);
                         showToast(`Copied commit #${commit.hash}`);
                       }}>
@@ -1192,13 +1269,25 @@ export default function App() {
                       <td style={{ color: '#ffffff', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={commit.message}>
                         {commit.message}
                       </td>
-                      <td>{config.githubRepoName || 'Local Workspace'}</td>
+                      <td>{config.githubRepoName ? config.githubRepoName.split('/').pop() : 'Workspace'}</td>
                       <td>{commit.date ? commit.date.split(' ')[0] : 'Today'}</td>
-                      <td>HEAD &rarr; origin</td>
-                      <td>{config.githubAllowedUser || 'Sachindrapandeyyy'}</td>
-                      <td style={{ fontWeight: '600', color: '#fff' }}>+{(i + 1) * 7} / -{(i + 1) * 2}</td>
                       <td>
-                        <span className={isPushed ? 'delivered-pill' : 'transit-pill'}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#cbd5e1', fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="6" y1="3" x2="6" y2="15"></line>
+                            <circle cx="18" cy="6" r="3"></circle>
+                            <circle cx="6" cy="18" r="3"></circle>
+                            <path d="M18 9a9 9 0 0 1-9 9"></path>
+                          </svg>
+                          main
+                        </span>
+                      </td>
+                      <td>{author}</td>
+                      <td style={{ color: '#94a3b8', fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
+                        {config.llmProvider !== 'none' ? 'src/patch.js' : 'activity.txt'}
+                      </td>
+                      <td>
+                        <span className={isPushed ? 'pushed-pill' : 'local-pill'}>
                           {isPushed ? 'Pushed' : 'Local'}
                         </span>
                       </td>

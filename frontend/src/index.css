@@ -931,6 +931,7 @@ body {
   font-family: var(--font-mono);
 }
 
+.status-pill-engine,
 .status-pill-transit {
   background-color: var(--yellow-pill-bg);
   color: var(--yellow-accent);
@@ -939,6 +940,8 @@ body {
   padding: 0.25rem 0.65rem;
   border-radius: 9999px;
 }
+.status-pill-engine.green,
+.status-pill-engine.active,
 .status-pill-transit.green {
   background-color: var(--green-pill-bg);
   color: var(--green-accent);
@@ -1104,6 +1107,7 @@ body {
   color: #cbd5e1;
 }
 
+.author-profile-card,
 .courier-profile-card {
   background-color: var(--bg-card-inner);
   border: 1px solid var(--border-subtle);
@@ -1114,32 +1118,39 @@ body {
   gap: 0.75rem;
 }
 
+.author-avatar,
 .courier-avatar {
   width: 36px;
   height: 36px;
   border-radius: 50%;
   object-fit: cover;
+  border: 1px solid var(--border-subtle);
 }
+.author-info,
 .courier-info {
   display: flex;
   flex-direction: column;
   flex: 1;
 }
+.author-label,
 .courier-label {
   font-size: 0.68rem;
   color: var(--text-muted);
 }
+.author-name,
 .courier-name {
   font-size: 0.82rem;
   font-weight: 700;
   color: var(--text-white);
 }
 
+.author-actions,
 .courier-actions {
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
+.author-btn,
 .courier-btn {
   width: 32px;
   height: 32px;
@@ -1153,6 +1164,7 @@ body {
   cursor: pointer;
   transition: all 0.2s ease;
 }
+.author-btn:hover,
 .courier-btn:hover {
   background-color: var(--bg-pill-hover);
   color: var(--text-white);
@@ -1284,11 +1296,13 @@ body {
 .activities-table tr:hover td {
   background-color: rgba(255, 255, 255, 0.02);
 }
+.commit-hash-cell,
 .order-id-cell {
   font-family: var(--font-mono);
   font-weight: 600;
   color: var(--text-white);
 }
+.pushed-pill,
 .delivered-pill {
   background-color: var(--green-pill-bg);
   color: var(--green-accent);
@@ -1298,6 +1312,7 @@ body {
   border-radius: 9999px;
   display: inline-block;
 }
+.local-pill,
 .transit-pill {
   background-color: var(--yellow-pill-bg);
   color: var(--yellow-accent);

@@ -9,8 +9,9 @@ import { readConfig } from './config-manager.js';
  */
 function ensureGitConfig(repoPath) {
   try {
-    const authorName = process.env.GIT_AUTHOR_NAME || process.env.GITHUB_ALLOWED_USER || 'Auto Committer';
-    const authorEmail = process.env.GIT_AUTHOR_EMAIL || 'auto-committer@example.com';
+    const config = readConfig();
+    const authorName = process.env.GIT_AUTHOR_NAME || process.env.GITHUB_ALLOWED_USER || config.githubAllowedUser || 'Auto Committer';
+    const authorEmail = process.env.GIT_AUTHOR_EMAIL || (config.githubAllowedUser ? `${config.githubAllowedUser}@users.noreply.github.com` : 'auto-committer@example.com');
     
     execSync(`git config --local user.name "${authorName}"`, { cwd: repoPath });
     execSync(`git config --local user.email "${authorEmail}"`, { cwd: repoPath });
@@ -228,11 +229,18 @@ export async function makeSingleCommit(repoPath, phrase, commitDate, pushAfterCo
   const dateStr = commitDate.toISOString();
   execSync(`git add "${filename}"`, { cwd: absolutePath });
   
-  // Commit with custom environment date variables
+  // Commit with custom environment date and author variables
+  const authorName = process.env.GIT_AUTHOR_NAME || process.env.GITHUB_ALLOWED_USER || config.githubAllowedUser || 'Auto Committer';
+  const authorEmail = process.env.GIT_AUTHOR_EMAIL || (config.githubAllowedUser ? `${config.githubAllowedUser}@users.noreply.github.com` : 'auto-committer@example.com');
+  
   execSync(`git commit -m "${commitMessage.replace(/"/g, '\\"')}"`, {
     cwd: absolutePath,
     env: {
       ...process.env,
+      GIT_AUTHOR_NAME: authorName,
+      GIT_AUTHOR_EMAIL: authorEmail,
+      GIT_COMMITTER_NAME: authorName,
+      GIT_COMMITTER_EMAIL: authorEmail,
       GIT_AUTHOR_DATE: dateStr,
       GIT_COMMITTER_DATE: dateStr
     }
